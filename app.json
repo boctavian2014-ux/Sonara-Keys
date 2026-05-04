@@ -1,7 +1,8 @@
 {
   "expo": {
-    "name": "piano-notes-mvp",
-    "slug": "piano-notes-mvp",
+    "name": "Sonara Keys",
+    "slug": "sonara-keys",
+    "scheme": "sonarakeys",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -13,18 +14,34 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Aplicația ascultă pianul prin microfon pentru a detecta notele."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "permissions": [
+        "RECORD_AUDIO"
+      ],
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.devaieoodltd1.sonarakeys"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "@edkimmel/expo-audio-stream",
+      "expo-audio"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e755c1ea-db4f-43d4-91fc-97d776ca5e1c"
+      }
     }
   }
 }

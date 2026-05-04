@@ -1,3 +1,6 @@
+/** Registers CPU kernels — required on React Native where WebGL backend often fails. */
+import '@tensorflow/tfjs-backend-cpu';
+
 import { registerRootComponent } from 'expo';
 
 import App from './App';

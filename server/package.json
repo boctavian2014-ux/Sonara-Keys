@@ -1,0 +1,9 @@
+{
+  "name": "sonara-keys-transcribe-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Optional npm wrapper; server is Python (Basic Pitch). Use pip + uvicorn.",
+  "scripts": {
+    "start": "python app.py"
+  }
+}

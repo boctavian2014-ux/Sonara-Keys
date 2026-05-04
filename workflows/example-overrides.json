@@ -1,0 +1,14 @@
+{
+  "overrides": {
+    "12": {
+      "inputs": {
+        "audio": "https://example.com/session.wav"
+      }
+    },
+    "45": {
+      "inputs": {
+        "filename_prefix": "session"
+      }
+    }
+  }
+}

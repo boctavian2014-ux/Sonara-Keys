@@ -31,10 +31,17 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
+!.env.example
 .env*.local
 
 # typescript
 *.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
 
 # generated native folders
 /ios

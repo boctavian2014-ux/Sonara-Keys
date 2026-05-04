@@ -1,20 +1,60 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+/**
+ * Sonara Keys — native build for PCM (`@edkimmel/expo-audio-stream`).
+ * Run: `npx expo run:android` / `run:ios` (Expo Go lacks the native module).
+ *
+ * Navigation: simple root switch (no React Navigation in package.json).
+ * See `src/navigation/INTEGRATION.md` to migrate to a stack or Expo Router.
+ */
+import { KindeAuthProvider } from '@kinde/expo';
+import { useState } from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-export default function App() {
+import { getKindeAuthConfig } from './src/auth/kindeConfig';
+import HomeScreen from './src/screens/HomeScreen';
+import PracticeScreen from './src/screens/PracticeScreen';
+import type { PracticeOpenSource } from './types/practiceRoute';
+
+function AppInner() {
+  const [screen, setScreen] = useState<'home' | 'practice'>('home');
+  const [practiceOpen, setPracticeOpen] = useState<PracticeOpenSource>({ kind: 'sample' });
+
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <SafeAreaProvider>
+      {screen === 'home' ? (
+        <HomeScreen
+          onOpenPractice={(route) => {
+            setPracticeOpen(route);
+            setScreen('practice');
+          }}
+        />
+      ) : (
+        <PracticeScreen
+          key={practiceOpen.kind === 'saved' ? practiceOpen.saved.id : 'sample'}
+          practiceOpen={practiceOpen}
+          onBack={() => {
+            setScreen('home');
+            setPracticeOpen({ kind: 'sample' });
+          }}
+        />
+      )}
+    </SafeAreaProvider>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+export default function App() {
+  const kinde = getKindeAuthConfig();
+  if (kinde != null) {
+    return (
+      <KindeAuthProvider
+        config={{
+          domain: kinde.domain,
+          clientId: kinde.clientId,
+          scopes: 'openid profile email offline',
+        }}
+      >
+        <AppInner />
+      </KindeAuthProvider>
+    );
+  }
+  return <AppInner />;
+}

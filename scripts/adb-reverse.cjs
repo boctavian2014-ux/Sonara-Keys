@@ -1,0 +1,40 @@
+/**
+ * Runs `adb reverse tcp:8081 tcp:8081` so a USB-connected device can reach Metro on localhost.
+ * Resolves adb.exe without requiring platform-tools on PATH.
+ */
+const { spawnSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+function findAdb() {
+  const roots = [
+    process.env.ANDROID_HOME,
+    process.env.ANDROID_SDK_ROOT,
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Android', 'Sdk'),
+    process.env.USERPROFILE && path.join(process.env.USERPROFILE, 'AppData', 'Local', 'Android', 'Sdk'),
+  ].filter(Boolean);
+
+  const name = process.platform === 'win32' ? 'adb.exe' : 'adb';
+  for (const root of roots) {
+    const p = path.join(root, 'platform-tools', name);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+const adb = findAdb();
+if (!adb) {
+  console.error(
+    '\n[adb-reverse] adb.exe not found. Install Android SDK Platform-Tools, then either:\n' +
+      '  - Add ...\\Android\\Sdk\\platform-tools to your PATH, or\n' +
+      '  - Set ANDROID_HOME to your SDK folder (e.g. %LOCALAPPDATA%\\Android\\Sdk)\n',
+  );
+  process.exit(1);
+}
+
+const r = spawnSync(adb, ['reverse', 'tcp:8081', 'tcp:8081'], { stdio: 'inherit', shell: false });
+if (r.status !== 0) {
+  console.error('\n[adb-reverse] Failed. Is USB debugging enabled and the device connected?\n');
+  process.exit(r.status ?? 1);
+}
+console.log('[adb-reverse] tcp:8081 -> tcp:8081 OK (' + adb + ')\n');
