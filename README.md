@@ -117,7 +117,8 @@ npm run test:e2e:build:android   # Detox — necesită APK + emulator (vezi deto
 
 ## Licență
 
-Proiect privat / licență la alegerea autorului — setează un fișier `LICENSE` dacă publici repo-ul.
+Drepturi de autor **DEVAIEOOD LTD** — vezi fișierul [`LICENSE`](LICENSE) din rădăcina repo-ului.  
+Codul nu este licențiat ca open source implicit; pentru utilizare sau redistribuire contactează deținătorul.
 
 ---
 
