@@ -1,71 +1,124 @@
 # Sonara Keys
 
-Real-time note detection and practice: microphone pitch pipeline, staff view, and local melody library.
+**From score to sound, one key at a time.**
 
-## Requirements
+Sonara Keys este o aplicație **Expo (React Native)** pentru detectarea notelor în timp real de la **microfon**, afișare pe **portativ**, mod **Practice** cu tastatură on-screen, bibliotecă locală de melodii și export **SVG / JSON / MIDI**. Opțional: transcriere mai bogată pe PC prin **Basic Pitch** (Python) și autentificare **Kinde**.
 
-- Node.js 18+ (for Expo CLI)
-- Expo Dev Client (native build)
-- iOS: Xcode + physical device or simulator (microphone works on both)
-- Android: Android Studio + physical device or emulator with audio input
-- **Web:** Microphone native module not available — practice mode shows fallback message
+---
 
-## Installation
+## Ce face aplicația
+
+| Zonă | Descriere |
+|------|-------------|
+| **Ascultare live** | PCM de la microfon → pipeline YIN / opțional server Basic Pitch → note pe portativ. |
+| **Practice** | Melodie exemplu sau melodie salvată; feedback corect/greșit; auto-play; tastatură. |
+| **Bibliotecă** | Melodii salvate local (`expo-file-system`), Practice, partajare fișiere. |
+| **Import audio** | Înregistrare scurtă → WAV → `POST /transcribe` pe serverul tău (același contract ca live). |
+
+Microfonul **nu** rulează în **Expo Go** — ai nevoie de **development build** (`npx expo run:android` / `run:ios`).
+
+---
+
+## Stack
+
+- **Expo SDK 54**, React Native 0.81, TypeScript  
+- **@edkimmel/expo-audio-stream** — captură PCM nativă  
+- **TensorFlow.js** — Basic Pitch on-device (opțional dezactivat prin env)  
+- **@kinde/expo** — conturi (opțional, dacă pui cheile în `.env`)  
+- **Server `server/`** — FastAPI + Spotify Basic Pitch pentru `/transcribe`  
+
+Design: `theme/sonaraTheme.ts` + `theme/theme.ts`; Practice: `src/theme/practiceTheme.ts`.
+
+---
+
+## Cerințe
+
+- Node.js **18+**  
+- **Android Studio** / **Xcode** pentru build nativ  
+- Telefon sau emulator cu intrare audio (pentru live detection)  
+
+---
+
+## Instalare și rulare
 
 ```bash
 npm install
-```
-
-## Running the App
-
-### Development (Expo Go limitations)
-
-```bash
 npx expo start
 ```
 
-Scan QR with Expo Go (Android) or Camera app (iOS). **Note:** Microphone live detection requires a **development build** because `@edkimmel/expo-audio-stream` is a native module not available in Expo Go.
-
-### Native Development Builds
+Build nativ (recomandat pentru microfon):
 
 ```bash
-# Android
 npx expo run:android
-
-# iOS
+# sau
 npx expo run:ios
 ```
 
-These commands build a native binary and install it on a connected device/emulator. Use `--device` to target a specific device.
-
-### Web
+USB + Metro pe același PC:
 
 ```bash
-npm run web
+npm run dev:usb
 ```
 
-Only autoplay + keyboard tap available; microphone disabled.
+Web (`npm run web`): fără microfon live; demo tastatură / auto-play unde e suportat.
 
-## Features (MVP)
+---
 
-- Live pitch detection via YIN algorithm (on-device)
-- Practice mode: play along with highlighted notes, get instant feedback (correct/wrong)
-- Auto-play: hear the melody first
-- Save melodies to local library (expo-file-system)
-- Staff view with real-time note highlighting
-- On-screen keyboard (touch + mouse)
-- Sound feedback via ToneSynth (sine-wave WAV)
+## Variabile de mediu (`.env`)
 
-## Native Module
+Copiază din **`.env.example`** și completează:
 
-The app uses `@edkimmel/expo-audio-stream` for PCM audio capture. This requires:
+| Variabilă | Rol |
+|-----------|-----|
+| `EXPO_PUBLIC_TRANSCRIBE_API_URL` | URL server Basic Pitch (ex. `http://IP:8787`). Fără `/` final. |
+| `EXPO_PUBLIC_SKIP_ONDEVICE_BASIC_PITCH` | Opțional `1` — sari peste TF pe telefon. |
+| `EXPO_PUBLIC_KINDE_DOMAIN` | URL subdomeniu Kinde (`https://xxx.kinde.com`). |
+| `EXPO_PUBLIC_KINDE_CLIENT_ID` | Client ID aplicație nativă din Kinde. |
 
-- `app.json` includes plugin: `"@edkimmel/expo-audio-stream"`
-- iOS `Info.plist`: `NSMicrophoneUsageDescription` (already set)
-- Android `AndroidManifest.xml`: `RECORD_AUDIO` permission (already set via `app.json`)
+După modificări: **`npx expo start --clear`**.
 
-## Troubleshooting
+**Kinde — Callback URL** în dashboard (scheme din `app.json`):  
+`sonarakeys://kinde_callback`
 
-- **Module not found in Expo Go:** Expected — use `npx expo run:android` or `npx expo run:ios`
-- **Microphone denied:** Check device settings; on Android, ensure app has RECORD_AUDIO permission
-- **Web:** No microphone support; use native build for full practice
+Fișierul **`.env`** nu se comite (e în `.gitignore`).
+
+---
+
+## Server Python (transcriere)
+
+```bash
+cd server
+python -m venv .venv
+.venv\Scripts\activate   # Windows
+pip install -r requirements.txt
+python app.py
+```
+
+Detalii: [`docs/local-basic-pitch.md`](docs/local-basic-pitch.md).
+
+---
+
+## Teste
+
+```bash
+npm test                 # Jest (unit)
+npm run test:e2e:build:android   # Detox — necesită APK + emulator (vezi detox.config.js)
+```
+
+---
+
+## Depanare rapidă
+
+- **„Module not found” în Expo Go** — normal; folosește dev build.  
+- **Timeout la IP în dev** — același Wi‑Fi ca PC-ul sau `npm run dev:usb` + `adb reverse`.  
+- **Web** — fără modul microfon; folosește Android/iOS pentru flux complet.  
+
+---
+
+## Licență
+
+Proiect privat / licență la alegerea autorului — setează un fișier `LICENSE` dacă publici repo-ul.
+
+---
+
+Repository: [github.com/boctavian2014-ux/Sonara-Keys](https://github.com/boctavian2014-ux/Sonara-Keys)
