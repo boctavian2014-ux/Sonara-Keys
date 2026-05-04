@@ -19,6 +19,7 @@
     "@edkimmel/expo-audio-stream": "^0.4.2",
     "@kinde/expo": "^0.5.3",
     "@spotify/basic-pitch": "^1.0.1",
+    "@supabase/supabase-js": "^2.105.1",
     "@tensorflow/tfjs": "^3.21.0",
     "@tensorflow/tfjs-backend-cpu": "3.21.0",
     "expo": "~54.0.33",

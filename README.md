@@ -74,6 +74,8 @@ Copiază din **`.env.example`** și completează:
 | `EXPO_PUBLIC_SKIP_ONDEVICE_BASIC_PITCH` | Opțional `1` — sari peste TF pe telefon. |
 | `EXPO_PUBLIC_KINDE_DOMAIN` | URL subdomeniu Kinde (`https://xxx.kinde.com`). |
 | `EXPO_PUBLIC_KINDE_CLIENT_ID` | Client ID aplicație nativă din Kinde. |
+| `EXPO_PUBLIC_SUPABASE_URL` | URL proiect Supabase (ex. `https://hctlyggquhrxmdeiolmc.supabase.co`). |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Cheia **anon** publică (Settings → API în Supabase). |
 
 După modificări: **`npx expo start --clear`**.
 
@@ -81,6 +83,27 @@ După modificări: **`npx expo start --clear`**.
 `sonarakeys://kinde_callback`
 
 Fișierul **`.env`** nu se comite (e în `.gitignore`).
+
+---
+
+## Supabase
+
+Proiect dashboard: [Supabase — Sonara Keys (hctlyggquhrxmdeiolmc)](https://supabase.com/dashboard/project/hctlyggquhrxmdeiolmc).
+
+1. În **Settings → API** copiază **Project URL** și **anon public** în `.env` (vezi tabelul de mai sus).  
+2. În cod, clientul e în [`src/lib/supabase.ts`](src/lib/supabase.ts) — `supabase` e `null` până pui ambele variabile.  
+3. Pentru melodii în cloud: creează tabele în **SQL Editor**, activează **RLS** + politici pe `auth.uid()` (sau integrezi mai întâi Kinde JWT cu Supabase — pas separat).  
+4. Exemplu SQL minimal pentru o viitoare tabelă `melodies` (ajustează după nevoie):
+
+```sql
+create table if not exists public.melodies (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users (id) on delete cascade,
+  title text not null,
+  notes jsonb not null,
+  created_at timestamptz default now()
+);
+```
 
 ---
 
