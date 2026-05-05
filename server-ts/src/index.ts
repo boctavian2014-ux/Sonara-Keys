@@ -24,7 +24,7 @@ type DetectedNote = {
 };
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
-const PORT = Number(process.env.TRANSCRIBE_PORT || process.env.BP_PORT || 8787);
+const PORT = Number(process.env.RAILWAY_PORT || process.env.TRANSCRIBE_PORT || process.env.BP_PORT || 8787);
 const upload = multer({ storage: multer.memoryStorage() });
 const modelDir = path.resolve(__dirname, '../node_modules/@spotify/basic-pitch/model');
 let basicPitchSingleton: BasicPitch | null = null;
