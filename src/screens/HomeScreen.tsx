@@ -23,7 +23,13 @@ import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { colors, layout, radius, sonaraTheme, spacing, typography } from '../../theme';
 import { midiToFrequency, sortNotesByTime } from '../audio/midiUtils';
 import { ToneSynth } from '../audio/ToneSynth';
-import { listSavedMelodies, loadSavedMelody, saveMelodyToLibrary, deleteSavedMelody } from '../audio/melodyLibrary';
+import {
+  listSavedMelodies,
+  loadSavedMelody,
+  saveMelodyToLibrary,
+  deleteSavedMelody,
+  writeMelodyPayloadToDisk,
+} from '../audio/melodyLibrary';
 import { shareSessionMidi, shareSessionNotesJson, shareSessionStaffSvg } from '../audio/sessionShare';
 import { useAudioToMidi } from '../audio/useAudioToMidi';
 import { useNoteDetection } from '../audio/useNoteDetection';
@@ -34,6 +40,14 @@ import type { PracticeOpenSource } from '../../types/practiceRoute';
 import type { SavedMelodySummary } from '../../types/savedMelody';
 import { getKindeAuthConfig } from '../auth/kindeConfig';
 import { useOptionalKinde } from '../auth/useOptionalKinde';
+import {
+  deleteCloudMelody,
+  fetchCloudMelody,
+  getKindeSubject,
+  listCloudMelodies,
+  upsertCloudMelody,
+} from '../lib/melodyRemote';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 type HomeScreenProps = {
   onOpenPractice: (route: PracticeOpenSource) => void;
@@ -61,7 +75,7 @@ function octaveChipColors(octave: number): { bg: string; border: string } {
 }
 
 export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
-  const { width } = useWindowDimensions();
+  const { width, height: windowHeight } = useWindowDimensions();
   const detection = useNoteDetection();
   const detectionRef = useRef(detection);
   detectionRef.current = detection;
@@ -69,15 +83,27 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
   const audioImportRef = useRef(audioImport);
   audioImportRef.current = audioImport;
 
+  const webBlock = Platform.OS === 'web';
+
   const [savedMelodies, setSavedMelodies] = useState<SavedMelodySummary[]>([]);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveTitleDraft, setSaveTitleDraft] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [kindeProfileLine, setKindeProfileLine] = useState<string | null>(null);
   const [kindeAuthBusy, setKindeAuthBusy] = useState(false);
+  const [cloudMelodies, setCloudMelodies] = useState<SavedMelodySummary[]>([]);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [kindeSubForCloud, setKindeSubForCloud] = useState<string | null>(null);
+  const [staffExpanded, setStaffExpanded] = useState(false);
 
   const kinde = useOptionalKinde();
+  const kindeRef = useRef(kinde);
+  kindeRef.current = kinde;
   const kindeEnvConfigured = useMemo(() => getKindeAuthConfig() != null, []);
+  const cloudSyncReady = useMemo(
+    () => !webBlock && kinde?.isAuthenticated === true && isSupabaseConfigured(),
+    [webBlock, kinde?.isAuthenticated],
+  );
 
   const transcribeUrlHint = useMemo(() => {
     const u =
@@ -110,12 +136,13 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
   }, [detection.requestPermission]);
 
   useEffect(() => {
-    if (!settingsOpen || kinde == null || !kinde.isAuthenticated) {
+    const activeKinde = kindeRef.current;
+    if (!settingsOpen || activeKinde == null || !activeKinde.isAuthenticated) {
       setKindeProfileLine(null);
       return;
     }
     let cancelled = false;
-    void kinde.getUserProfile().then((p) => {
+    void activeKinde.getUserProfile().then((p) => {
       if (cancelled || p == null) return;
       const o = p as Record<string, unknown>;
       const email = typeof o.email === 'string' ? o.email : '';
@@ -127,7 +154,121 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
     return () => {
       cancelled = true;
     };
-  }, [settingsOpen, kinde, kinde?.isAuthenticated]);
+  }, [settingsOpen, kinde?.isAuthenticated]);
+
+  useEffect(() => {
+    const activeKinde = kindeRef.current;
+    if (!cloudSyncReady || activeKinde == null) {
+      setCloudMelodies([]);
+      setKindeSubForCloud(null);
+      return;
+    }
+    let cancelled = false;
+    setCloudBusy(true);
+    void (async () => {
+      const sub = await getKindeSubject(activeKinde);
+      if (cancelled) return;
+      if (sub == null) {
+        setKindeSubForCloud(null);
+        setCloudMelodies([]);
+        setCloudBusy(false);
+        return;
+      }
+      setKindeSubForCloud(sub);
+      try {
+        const list = await listCloudMelodies(sub);
+        if (!cancelled) setCloudMelodies(list);
+      } catch {
+        if (!cancelled) setCloudMelodies([]);
+      } finally {
+        if (!cancelled) setCloudBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudSyncReady, kinde?.isAuthenticated]);
+
+  const onRefreshCloudList = useCallback(async () => {
+    if (kindeSubForCloud == null) return;
+    setCloudBusy(true);
+    try {
+      const list = await listCloudMelodies(kindeSubForCloud);
+      setCloudMelodies(list);
+    } catch (e) {
+      Alert.alert('Cloud', e instanceof Error ? e.message : 'Nu s-a putut actualiza lista.');
+    } finally {
+      setCloudBusy(false);
+    }
+  }, [kindeSubForCloud]);
+
+  const onUploadAllLocalToCloud = useCallback(async () => {
+    if (kindeSubForCloud == null || webBlock) return;
+    setCloudBusy(true);
+    try {
+      for (const m of savedMelodies) {
+        const full = await loadSavedMelody(m.id);
+        if (full != null) await upsertCloudMelody(kindeSubForCloud, full);
+      }
+      const list = await listCloudMelodies(kindeSubForCloud);
+      setCloudMelodies(list);
+      Alert.alert('Cloud', 'Melodiile locale au fost încărcate.');
+    } catch (e) {
+      Alert.alert('Cloud', e instanceof Error ? e.message : 'Eroare la încărcare.');
+    } finally {
+      setCloudBusy(false);
+    }
+  }, [kindeSubForCloud, webBlock, savedMelodies]);
+
+  const onDownloadCloudMelody = useCallback(
+    async (id: string) => {
+      if (kindeSubForCloud == null || webBlock) return;
+      setCloudBusy(true);
+      try {
+        const payload = await fetchCloudMelody(kindeSubForCloud, id);
+        if (payload == null) {
+          Alert.alert('Cloud', 'Melodia nu a fost găsită sau formatul nu e acceptat.');
+          return;
+        }
+        await writeMelodyPayloadToDisk(payload);
+        await refreshSavedMelodies();
+        Alert.alert('Bibliotecă', 'Melodia a fost salvată local.');
+      } catch (e) {
+        Alert.alert('Cloud', e instanceof Error ? e.message : 'Eroare la descărcare.');
+      } finally {
+        setCloudBusy(false);
+      }
+    },
+    [kindeSubForCloud, webBlock, refreshSavedMelodies],
+  );
+
+  const onDeleteCloudMelody = useCallback(
+    (id: string, title: string) => {
+      if (kindeSubForCloud == null) return;
+      Alert.alert('Șterge din cloud', `Sigur ștergi „${title}” din cloud?`, [
+        { text: 'Anulează', style: 'cancel' },
+        {
+          text: 'Șterge',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setCloudBusy(true);
+              try {
+                await deleteCloudMelody(kindeSubForCloud, id);
+                const list = await listCloudMelodies(kindeSubForCloud);
+                setCloudMelodies(list);
+              } catch (e) {
+                Alert.alert('Cloud', e instanceof Error ? e.message : 'Eroare.');
+              } finally {
+                setCloudBusy(false);
+              }
+            })();
+          },
+        },
+      ]);
+    },
+    [kindeSubForCloud],
+  );
 
   const onKindeLogin = useCallback(async () => {
     if (kinde == null) return;
@@ -167,6 +308,7 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
   }, [kinde]);
 
   const staffW = Math.max(200, width - 40);
+  const staffExpandedInnerHeight = Math.round(Math.min(windowHeight * 0.72, 560));
 
   const onHeroPress = useCallback(() => {
     if (Platform.OS === 'web') return;
@@ -345,8 +487,6 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
           ? 'Se pregătește…'
           : 'Pune o melodie lângă microfon, apoi apasă pentru înregistrare.';
 
-  const webBlock = Platform.OS === 'web';
-
   return (
     <GradientScreenBackground>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']} testID="home-screen">
@@ -360,6 +500,9 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
             <ScreenHeader
               title={sonaraTheme.brand.name}
               subtitle={sonaraTheme.brand.tagline}
+              onAccountPress={
+                !webBlock && kindeEnvConfigured ? () => setSettingsOpen(true) : undefined
+              }
               onSettingsPress={() => setSettingsOpen(true)}
             />
 
@@ -406,16 +549,31 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
               </GlassCard>
             ) : null}
 
-            <GlassCard style={styles.staffCard}>
-              <SheetMusicView
-                notes={detection.detectedNotes}
-                isListening={detection.isListening || detection.isStartingMic}
-                isTranscribing={detection.isProcessing}
-                isModelLoaded={detection.isModelLoaded}
-                width={staffW}
-                height={130}
-              />
-            </GlassCard>
+            <Pressable
+              onPress={() => setStaffExpanded((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel={
+                staffExpanded ? 'Restrânge portativul' : 'Extinde portativul pe mai multe linii'
+              }
+            >
+              <GlassCard style={[styles.staffCard, staffExpanded && styles.staffCardExpanded]}>
+                <Text style={styles.staffExpandHint}>
+                  {staffExpanded
+                    ? 'Apasă din nou pentru portativ compact'
+                    : 'Apasă aici pentru portativ mare (mai multe linii)'}
+                </Text>
+                <SheetMusicView
+                  notes={detection.detectedNotes}
+                  isListening={detection.isListening || detection.isStartingMic}
+                  isTranscribing={detection.isProcessing}
+                  isModelLoaded={detection.isModelLoaded}
+                  width={staffW}
+                  height={staffExpanded ? staffExpandedInnerHeight : 130}
+                  multilineStaff={staffExpanded}
+                  clampSvgHeight={!staffExpanded}
+                />
+              </GlassCard>
+            </Pressable>
 
             <View style={styles.heroBlock}>
               <ListenHeroButton
@@ -603,6 +761,71 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
               )}
             </GlassCard>
 
+            <GlassCard style={styles.libraryCard}>
+              <View style={styles.cloudHeaderRow}>
+                <Text style={styles.libraryTitle}>Melodii în cloud</Text>
+                {cloudBusy ? <ActivityIndicator color={colors.textSecondary} /> : null}
+              </View>
+              {!cloudSyncReady ? (
+                <Text style={styles.libraryEmpty}>
+                  {webBlock
+                    ? 'Sincronizarea cloud nu e disponibilă pe web.'
+                    : !isSupabaseConfigured()
+                      ? 'Adaugă EXPO_PUBLIC_SUPABASE_URL și EXPO_PUBLIC_SUPABASE_ANON_KEY în .env pentru cloud.'
+                      : 'Conectează-te cu Kinde ca să vezi și să sincronizezi melodiile în cloud.'}
+                </Text>
+              ) : cloudMelodies.length === 0 ? (
+                <Text style={styles.libraryEmpty}>Nicio melodie în cloud încă. Poți încărca biblioteca locală.</Text>
+              ) : (
+                cloudMelodies.map((m) => (
+                  <View key={m.id} style={styles.libraryRow}>
+                    <View style={styles.libraryRowText}>
+                      <Text style={styles.libraryRowTitle} numberOfLines={1}>
+                        {m.title}
+                      </Text>
+                      <Text style={styles.libraryRowMeta}>
+                        {m.noteCount} note · {new Date(m.createdAtIso).toLocaleString('ro-RO')}
+                      </Text>
+                    </View>
+                    <View style={styles.libraryRowActions}>
+                      <Pressable
+                        onPress={() => void onDownloadCloudMelody(m.id)}
+                        style={({ pressed }) => [styles.libraryMiniBtn, pressed && styles.actionPressed]}
+                        disabled={cloudBusy}
+                      >
+                        <Text style={styles.libraryMiniBtnText}>Local</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => onDeleteCloudMelody(m.id, m.title)}
+                        style={({ pressed }) => [styles.libraryMiniBtnDanger, pressed && styles.actionPressed]}
+                        disabled={cloudBusy}
+                      >
+                        <Text style={styles.libraryMiniBtnDangerText}>Cloud ✕</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))
+              )}
+              {cloudSyncReady ? (
+                <View style={styles.cloudToolbar}>
+                  <Pressable
+                    onPress={() => void onUploadAllLocalToCloud()}
+                    style={({ pressed }) => [styles.libraryMiniBtn, pressed && styles.actionPressed]}
+                    disabled={cloudBusy || savedMelodies.length === 0}
+                  >
+                    <Text style={styles.libraryMiniBtnText}>Încarcă localele</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void onRefreshCloudList()}
+                    style={({ pressed }) => [styles.libraryMiniBtnGhost, pressed && styles.actionPressed]}
+                    disabled={cloudBusy}
+                  >
+                    <Text style={styles.libraryMiniBtnGhostText}>Actualizează</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </GlassCard>
+
             <View style={styles.actions}>
               <Pressable
                 onPress={() => onOpenPractice({ kind: 'sample' })}
@@ -689,7 +912,11 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
                         (scheme din app.json).
                       </Text>
                     ) : kinde == null ? (
-                      <Text style={styles.settingsValue}>Kinde nu e disponibil în acest build.</Text>
+                      <Text style={styles.settingsValue}>
+                        {webBlock
+                          ? 'Autentificarea Kinde este disponibilă în build-ul nativ (Android / iOS), nu în browser.'
+                          : 'Kinde nu e disponibil în acest build. Verifică că ai repornit Metro după ce ai setat .env.'}
+                      </Text>
                     ) : kinde.isLoading ? (
                       <ActivityIndicator color={colors.accentTeal} style={{ marginVertical: spacing.sm }} />
                     ) : kinde.isAuthenticated ? (
@@ -821,6 +1048,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     overflow: 'hidden',
   },
+  staffCardExpanded: {
+    paddingVertical: spacing.md,
+  },
+  staffExpandHint: {
+    ...typography.caption,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.sm,
+  },
   heroBlock: { alignItems: 'center', marginBottom: spacing.xl },
   heroHint: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.md, textAlign: 'center' },
   importAudioBtn: { marginTop: spacing.lg, alignSelf: 'stretch', maxWidth: layout.maxContentWidth },
@@ -930,6 +1167,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(248,113,113,0.12)',
   },
   libraryMiniBtnDangerText: { ...typography.caption, color: '#fecaca', fontWeight: '700' },
+  cloudHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  cloudToolbar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    alignItems: 'center',
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.55)',

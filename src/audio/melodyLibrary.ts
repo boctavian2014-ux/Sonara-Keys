@@ -114,3 +114,13 @@ export async function deleteSavedMelody(id: string): Promise<void> {
     await deleteAsync(path, { idempotent: true });
   }
 }
+
+/** Scrie o melodie locală cu id-ul din payload (ex. merge din Supabase). */
+export async function writeMelodyPayloadToDisk(payload: SavedMelodyPayload): Promise<void> {
+  if (!isPayload(payload)) {
+    throw new Error('Invalid melody payload.');
+  }
+  const dir = await ensureDir();
+  const path = `${dir}${payload.id}.json`;
+  await writeAsStringAsync(path, `${JSON.stringify(payload, null, 2)}\n`, { encoding: 'utf8' });
+}

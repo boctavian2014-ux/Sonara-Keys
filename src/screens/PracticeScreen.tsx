@@ -1,4 +1,3 @@
-import * as ScreenOrientation from 'expo-screen-orientation';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -36,6 +35,18 @@ const HEADER_H = 44;
 const BOTTOM_BAR_H = 52;
 const PILL_H = 36;
 const BORDER_SUBTLE = 'rgba(151, 179, 255, 0.16)';
+
+async function lockOrientation(kind: 'landscape' | 'portrait'): Promise<void> {
+  try {
+    const mod = require('expo-screen-orientation') as {
+      lockAsync: (x: number) => Promise<void>;
+      OrientationLock: { LANDSCAPE: number; PORTRAIT_UP: number };
+    };
+    await mod.lockAsync(kind === 'landscape' ? mod.OrientationLock.LANDSCAPE : mod.OrientationLock.PORTRAIT_UP);
+  } catch {
+    // Missing native module in current dev build: keep app running.
+  }
+}
 
 export type PracticeScreenProps = {
   onBack: () => void;
@@ -148,22 +159,14 @@ export default function PracticeScreen({ onBack, practiceOpen }: PracticeScreenP
 
     const task = InteractionManager.runAfterInteractions(async () => {
       if (cancelled) return;
-      try {
-        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-      } catch (e) {
-        console.warn('[PracticeScreen] Failed to lock landscape:', e);
-      }
+      await lockOrientation('landscape');
     });
 
     return () => {
       cancelled = true;
       // Best-effort portrait restore on unmount
       void (async () => {
-        try {
-          await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-        } catch (e) {
-          console.warn('[PracticeScreen] Failed to restore portrait:', e);
-        }
+        await lockOrientation('portrait');
       })();
     };
   }, []);
@@ -220,7 +223,7 @@ export default function PracticeScreen({ onBack, practiceOpen }: PracticeScreenP
   const handleBack = useCallback(() => {
     session.stopAutoPlay();
     if (Platform.OS !== 'web') {
-      void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+      void lockOrientation('portrait');
     }
     onBack();
   }, [onBack, session]);

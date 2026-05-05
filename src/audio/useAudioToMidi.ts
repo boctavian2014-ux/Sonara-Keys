@@ -22,6 +22,15 @@ const TRANSCRIBE_API_URL =
     ? process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL.trim()
     : '';
 
+const TRANSCRIBE_TIMEOUT_MS = (() => {
+  const raw =
+    typeof process.env.EXPO_PUBLIC_TRANSCRIBE_TIMEOUT_MS === 'string'
+      ? process.env.EXPO_PUBLIC_TRANSCRIBE_TIMEOUT_MS.trim()
+      : '';
+  const n = raw.length > 0 ? Number(raw) : 28_000;
+  return Number.isFinite(n) && n > 3000 ? n : 28_000;
+})();
+
 function getExpoPlayAudioStream(): ExpoPlayAudioStreamNative | null {
   if (Platform.OS === 'web') return null;
   if (requireOptionalNativeModule('ExpoPlayAudioStream') == null) {
@@ -236,7 +245,14 @@ export function useAudioToMidi(): {
     }
 
     const sr = sampleRateRef.current;
-    const notes = await transcribeRemote(TRANSCRIBE_API_URL, merged, sr);
+    const ac = new AbortController();
+    const tid = setTimeout(() => ac.abort(), TRANSCRIBE_TIMEOUT_MS);
+    let notes: Awaited<ReturnType<typeof transcribeRemote>>;
+    try {
+      notes = await transcribeRemote(TRANSCRIBE_API_URL, merged, sr, ac.signal);
+    } finally {
+      clearTimeout(tid);
+    }
     if (notes == null || notes.length === 0) {
       const msg = 'Transcription failed or no notes were detected.';
       setError(msg);

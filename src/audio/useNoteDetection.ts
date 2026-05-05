@@ -16,6 +16,15 @@ const SKIP_ONDEVICE_BASIC_PITCH =
   typeof process.env.EXPO_PUBLIC_SKIP_ONDEVICE_BASIC_PITCH === 'string' &&
   process.env.EXPO_PUBLIC_SKIP_ONDEVICE_BASIC_PITCH.trim() === '1';
 
+const TRANSCRIBE_TIMEOUT_MS = (() => {
+  const raw =
+    typeof process.env.EXPO_PUBLIC_TRANSCRIBE_TIMEOUT_MS === 'string'
+      ? process.env.EXPO_PUBLIC_TRANSCRIBE_TIMEOUT_MS.trim()
+      : '';
+  const n = raw.length > 0 ? Number(raw) : 28_000;
+  return Number.isFinite(n) && n > 3000 ? n : 28_000;
+})();
+
 const MIN_DURATION_SEC = 0.35;
 /** Cap PCM sent to analysis — Basic Pitch+TFJS on device is heavy; keep this modest. */
 const MAX_ANALYSIS_SEC = 8;
@@ -148,12 +157,28 @@ export function useNoteDetection() {
         const pre = preprocessAudioAllowQuiet(merged);
         if (runId !== analysisRunIdRef.current) return;
 
+        const tAnalysis0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
         let raw: DetectedNote[] = [];
         if (TRANSCRIBE_API_URL.length > 0) {
           if (runId === analysisRunIdRef.current) setTranscriptionProgress(18);
-          const remote = await transcribeRemote(TRANSCRIBE_API_URL, pre, sr);
-          if (remote && remote.length > 0) {
-            raw = remote;
+          const ac = new AbortController();
+          const tid = setTimeout(() => ac.abort(), TRANSCRIBE_TIMEOUT_MS);
+          const tRemote0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+          try {
+            const remote = await transcribeRemote(TRANSCRIBE_API_URL, pre, sr, ac.signal);
+            if (remote && remote.length > 0) {
+              raw = remote;
+            }
+          } catch (e) {
+            if (__DEV__) console.warn('[useNoteDetection] transcribeRemote', e);
+          } finally {
+            clearTimeout(tid);
+          }
+          if (__DEV__) {
+            const dt =
+              (typeof performance !== 'undefined' ? performance.now() : Date.now()) - tRemote0;
+            console.log(`[useNoteDetection] remote path wallMs=${dt.toFixed(0)} notes=${raw.length}`);
           }
         }
         if (raw.length === 0) {
@@ -193,6 +218,11 @@ export function useNoteDetection() {
         }
 
         if (runId !== analysisRunIdRef.current) return;
+        if (__DEV__) {
+          const total =
+            (typeof performance !== 'undefined' ? performance.now() : Date.now()) - tAnalysis0;
+          console.log(`[useNoteDetection] analysis pipeline wallMs=${total.toFixed(0)} rawNotes=${raw.length}`);
+        }
         const processed = postProcess(raw, detectedNotesRef.current, 22);
         if (processed.length === 0) {
           if (runId === analysisRunIdRef.current) {

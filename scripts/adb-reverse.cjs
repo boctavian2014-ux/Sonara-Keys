@@ -1,5 +1,5 @@
 /**
- * Runs `adb reverse tcp:8081 tcp:8081` so a USB-connected device can reach Metro on localhost.
+ * Runs `adb reverse` for common Metro ports so a USB-connected device can reach localhost.
  * Resolves adb.exe without requiring platform-tools on PATH.
  */
 const { spawnSync } = require('child_process');
@@ -32,9 +32,12 @@ if (!adb) {
   process.exit(1);
 }
 
-const r = spawnSync(adb, ['reverse', 'tcp:8081', 'tcp:8081'], { stdio: 'inherit', shell: false });
-if (r.status !== 0) {
-  console.error('\n[adb-reverse] Failed. Is USB debugging enabled and the device connected?\n');
-  process.exit(r.status ?? 1);
+const ports = [8081, 8082, 8083];
+for (const p of ports) {
+  const r = spawnSync(adb, ['reverse', `tcp:${p}`, `tcp:${p}`], { stdio: 'inherit', shell: false });
+  if (r.status !== 0) {
+    console.error(`\n[adb-reverse] Failed for tcp:${p}. Is USB debugging enabled and the device connected?\n`);
+    process.exit(r.status ?? 1);
+  }
 }
-console.log('[adb-reverse] tcp:8081 -> tcp:8081 OK (' + adb + ')\n');
+console.log('[adb-reverse] tcp:8081/8082/8083 reversed OK (' + adb + ')\n');
