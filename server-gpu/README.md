@@ -4,6 +4,7 @@ This service provides **piano-specialized polyphonic transcription** intended fo
 
 ## Endpoints
 
+- `GET /` → short JSON (so the base URL in a browser is not an empty 404)
 - `GET /health` → `{ ok: true }`
 - `POST /transcribe-window`
   - JSON body:

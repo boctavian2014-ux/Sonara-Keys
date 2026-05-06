@@ -73,6 +73,18 @@ app.add_middleware(
 )
 
 
+@app.get("/")
+def root():
+    """So opening the base URL in a browser is not a bare 404."""
+    return {
+        "ok": True,
+        "service": "sonara-keys-gpu",
+        "health": "/health",
+        "transcribe_window": "POST /transcribe-window",
+        "docs": "/docs",
+    }
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "engine": "piano_transcription_inference"}
