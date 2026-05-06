@@ -22,6 +22,7 @@ import { ListenHeroButton } from '../../components/ui/ListenHeroButton';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
 import { colors, layout, radius, sonaraTheme, spacing, typography } from '../../theme';
 import { midiToFrequency, sortNotesByTime } from '../audio/midiUtils';
+import { playStaffNotesSequence } from '../audio/playStaffNotes';
 import { ToneSynth } from '../audio/ToneSynth';
 import {
   listSavedMelodies,
@@ -96,6 +97,9 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
   const [cloudBusy, setCloudBusy] = useState(false);
   const [kindeSubForCloud, setKindeSubForCloud] = useState<string | null>(null);
   const [staffExpanded, setStaffExpanded] = useState(false);
+  const [staffPlaybackHighlightId, setStaffPlaybackHighlightId] = useState<string | null>(null);
+  const [staffPlaybackBusy, setStaffPlaybackBusy] = useState(false);
+  const staffPlaybackAbortRef = useRef<AbortController | null>(null);
 
   const kinde = useOptionalKinde();
   const kindeRef = useRef(kinde);
@@ -463,6 +467,48 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
     }
   }, [refreshSavedMelodies, onOpenPractice]);
 
+  const stopStaffPlayback = useCallback(() => {
+    staffPlaybackAbortRef.current?.abort();
+    staffPlaybackAbortRef.current = null;
+    setStaffPlaybackHighlightId(null);
+    setStaffPlaybackBusy(false);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      staffPlaybackAbortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (detection.detectedNotes.length === 0) {
+      stopStaffPlayback();
+    }
+  }, [detection.detectedNotes.length, stopStaffPlayback]);
+
+  const onStaffPlayToggle = useCallback(() => {
+    if (webBlock) return;
+    if (staffPlaybackBusy) {
+      stopStaffPlayback();
+      return;
+    }
+    const notes = detection.detectedNotes;
+    if (notes.length === 0) return;
+    const ac = new AbortController();
+    staffPlaybackAbortRef.current = ac;
+    setStaffPlaybackBusy(true);
+    void playStaffNotesSequence(notes, {
+      signal: ac.signal,
+      onHighlight: (id) => setStaffPlaybackHighlightId(id),
+    }).finally(() => {
+      if (staffPlaybackAbortRef.current === ac) {
+        staffPlaybackAbortRef.current = null;
+      }
+      setStaffPlaybackHighlightId(null);
+      setStaffPlaybackBusy(false);
+    });
+  }, [webBlock, staffPlaybackBusy, stopStaffPlayback, detection.detectedNotes]);
+
   const onDeleteSaved = useCallback(
     (id: string, title: string) => {
       Alert.alert('Șterge melodia', `Sigur ștergi „${title}”?`, [
@@ -575,9 +621,46 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
                     ? 'Apasă din nou pentru portativ compact'
                     : 'Apasă aici pentru portativ mare (mai multe linii)'}
                 </Text>
+                <View style={styles.staffToolbar}>
+                  <Pressable
+                    onPress={() => void onStaffPlayToggle()}
+                    disabled={
+                      webBlock ||
+                      detection.detectedNotes.length === 0 ||
+                      detection.isListening ||
+                      detection.isStartingMic ||
+                      detection.isProcessing
+                    }
+                    style={({ pressed }) => [
+                      styles.staffPlayBtn,
+                      (webBlock ||
+                        detection.detectedNotes.length === 0 ||
+                        detection.isListening ||
+                        detection.isStartingMic ||
+                        detection.isProcessing) &&
+                        styles.actionDisabled,
+                      pressed &&
+                        !(
+                          webBlock ||
+                          detection.detectedNotes.length === 0 ||
+                          detection.isListening ||
+                          detection.isStartingMic ||
+                          detection.isProcessing
+                        ) &&
+                        styles.actionPressed,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={staffPlaybackBusy ? 'Oprește redarea notelor' : 'Redă notele de pe portativ'}
+                  >
+                    <Text style={styles.staffPlayBtnText}>
+                      {staffPlaybackBusy ? 'Stop' : 'Redă portativ'}
+                    </Text>
+                  </Pressable>
+                </View>
                 <SheetMusicView
                   notes={detection.detectedNotes}
                   analysis={scoreAnalysis}
+                  highlightNoteId={staffPlaybackHighlightId}
                   isListening={detection.isListening || detection.isStartingMic}
                   isTranscribing={detection.isProcessing}
                   isModelLoaded={detection.isModelLoaded}
@@ -1069,8 +1152,28 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
     textAlign: 'center',
+    marginBottom: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  staffToolbar: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    justifyContent: 'center',
     marginBottom: spacing.sm,
     paddingHorizontal: spacing.sm,
+  },
+  staffPlayBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: 'rgba(45,212,191,0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(45,212,191,0.45)',
+  },
+  staffPlayBtnText: {
+    ...typography.bodySemibold,
+    color: colors.textPrimary,
+    fontSize: 14,
   },
   heroBlock: { alignItems: 'center', marginBottom: spacing.xl },
   heroHint: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.md, textAlign: 'center' },
