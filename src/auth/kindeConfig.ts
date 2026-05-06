@@ -28,3 +28,11 @@ export function getKindeAuthConfig(): KindeEnvConfig | null {
   if (!domain || !clientId) return null;
   return { domain, clientId };
 }
+
+/** Dacă e `true`, la pornire se cere login Kinde înainte de Home. Implicit: false (cont din Setări). */
+export function getKindeRequireLoginAtStartup(): boolean {
+  return (
+    typeof process.env.EXPO_PUBLIC_KINDE_REQUIRE_LOGIN === 'string' &&
+    process.env.EXPO_PUBLIC_KINDE_REQUIRE_LOGIN.trim() === '1'
+  );
+}

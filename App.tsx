@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { getKindeAuthConfig } from './src/auth/kindeConfig';
+import { getKindeAuthConfig, getKindeRequireLoginAtStartup } from './src/auth/kindeConfig';
 import { KindeAuthProvider } from './src/auth/kindeSdk';
 import { useOptionalKinde } from './src/auth/useOptionalKinde';
 import AuthScreen from './src/screens/AuthScreen';
@@ -86,7 +86,7 @@ export default function App() {
 
   const tree = (
     <SafeAreaProvider>
-      <AppInner requireKindeAuth={enableKinde} />
+      <AppInner requireKindeAuth={enableKinde && getKindeRequireLoginAtStartup()} />
     </SafeAreaProvider>
   );
 
