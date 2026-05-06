@@ -91,11 +91,20 @@ export async function transcribeWindowRemote(args: {
     return { ok: false, error: msg || 'Network error.' };
   }
 
+  const rawText = await res.text();
   let json: TranscribeWindowResponse;
   try {
-    json = (await res.json()) as TranscribeWindowResponse;
+    json = JSON.parse(rawText) as TranscribeWindowResponse;
   } catch {
-    return { ok: false, error: `Bad response (${res.status}).` };
+    const strip = rawText.replace(/\s+/g, ' ').trim().slice(0, 160);
+    const hint = strip ? ` ${strip}` : '';
+    return {
+      ok: false,
+      error:
+        res.status === 502
+          ? `Gateway 502 (RunPod nu ajunge la server sau timeout). Verifică: pod pornit, uvicorn pe 8789, loguri pod.${hint}`
+          : `Bad response (${res.status}).${hint}`,
+    };
   }
 
   if (!res.ok || !json.ok) {
