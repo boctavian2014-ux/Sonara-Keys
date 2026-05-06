@@ -619,7 +619,11 @@ export function SheetMusicView({
         )}
         {multilineStaff && engravedSvg == null && engraveError ? (
           <View style={styles.engraveHint}>
-            <Text style={styles.engraveHintText}>SVG server: {engraveError}</Text>
+            <Text style={styles.engraveHintText} numberOfLines={5}>
+              {engraveError.includes('404') || engraveError.toLowerCase().includes('nu există post')
+                ? 'Portativ mare: gravura SVG (LilyPond) nu e pe acest server — redeploy server-ts (Dockerfile cu LilyPond) sau setează EXPO_PUBLIC_SCORE_RENDER_API_URL. Mai sus e portativul vector din app.'
+                : `SVG: ${engraveError}`}
+            </Text>
           </View>
         ) : null}
       </View>
