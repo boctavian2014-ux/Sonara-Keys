@@ -34,6 +34,7 @@ import { shareSessionMidi, shareSessionNotesJson, shareSessionStaffSvg } from '.
 import { useAudioToMidi } from '../audio/useAudioToMidi';
 import { useNoteDetection } from '../audio/useNoteDetection';
 import { SheetMusicView } from '../components/SheetMusicView';
+import { analyzeScore } from '../audio/scoreAnalyze';
 
 import type { DetectedNote } from '../../types/notes';
 import type { PracticeOpenSource } from '../../types/practiceRoute';
@@ -112,6 +113,18 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
         : '';
     return u.length > 0 ? u : 'Nu e setat (adaugă EXPO_PUBLIC_TRANSCRIBE_API_URL în .env).';
   }, []);
+
+  const scoreAnalysis = useMemo(() => {
+    // Only run heavier analysis when user stopped listening and transcription finished.
+    if (webBlock) return null;
+    if (detection.isListening || detection.isStartingMic || detection.isProcessing) return null;
+    if (detection.detectedNotes.length === 0) return null;
+    try {
+      return analyzeScore(detection.detectedNotes);
+    } catch {
+      return null;
+    }
+  }, [webBlock, detection.isListening, detection.isStartingMic, detection.isProcessing, detection.detectedNotes]);
 
   const appVersionLabel = useMemo(() => {
     const v = Constants.expoConfig?.version ?? Constants.nativeAppVersion;
@@ -564,6 +577,7 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
                 </Text>
                 <SheetMusicView
                   notes={detection.detectedNotes}
+                  analysis={scoreAnalysis}
                   isListening={detection.isListening || detection.isStartingMic}
                   isTranscribing={detection.isProcessing}
                   isModelLoaded={detection.isModelLoaded}

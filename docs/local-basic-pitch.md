@@ -28,6 +28,12 @@ Implicit ascultă pe portul **8787** (`http://localhost:8787`). Setează `PORT` 
 EXPO_PUBLIC_TRANSCRIBE_API_URL=http://localhost:8787
 ```
 
+Opțional (recomandat pentru „portativ mare” cu calitate tipărită): dacă rulezi și endpoint-ul de randare SVG pe același server, poți folosi același URL. Dacă e pe alt host, setează separat:
+
+```env
+EXPO_PUBLIC_SCORE_RENDER_API_URL=http://localhost:8787
+```
+
 Pe **telefon fizic** în aceeași rețea Wi‑Fi, folosește IP-ul PC-ului, nu `localhost`:
 
 ```env
@@ -59,6 +65,24 @@ Lungimea audio trimisă la analiză e plafonată la **~8 s** (ultimele secunde d
 ## 5. Parametri opționali (server)
 
 Vezi [`server/.env.example`](../server/.env.example): praguri Basic Pitch (`BP_ONSET_THRESHOLD`, `BP_FRAME_THRESHOLD`, etc.) dacă vrei să tunezi sensibilitatea.
+
+## 6. Portativ mare (SVG gravat, print-like)
+
+Aplicația poate cere un SVG gravat (beams, spacing, măsuri corecte) prin endpoint-ul:
+
+- `POST /render-score-svg` cu JSON `{ "analysis": ScoreAnalysis }`
+
+### Local (Windows) — MuseScore
+
+Pe server (Windows), e necesar să ai **MuseScore** instalat și să poți rula CLI-ul. Dacă serverul nu găsește executable-ul automat, setează:
+
+- `MUSESCORE_PATH=C:\Program Files\MuseScore 4\bin\MuseScore4.exe`
+
+Dacă MuseScore lipsește, app-ul va face fallback la rendererul local (mai simplu) și va afișa un hint cu eroarea.
+
+### Cloud (Railway / Linux) — LilyPond
+
+Pentru deploy în cloud (Railway), recomandat este **LilyPond** în Docker image (mai robust pe Linux). În `server-ts/` există un `Dockerfile` care instalează `lilypond` și serverul expune `/render-score-svg`.
 
 ## 6. Notă despre RunComfy
 

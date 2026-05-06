@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Ellipse, G, Line, Path, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Ellipse, G, Line, Path, SvgXml, Text as SvgText } from 'react-native-svg';
 
 import type { DetectedNote } from '../../types/notes';
+import type { NoteValue, ScoreAnalysis } from '../../types/score';
 import {
   CLEF_W,
   MIDDLE_LINE_Y,
@@ -12,9 +13,12 @@ import {
   ledgerYsForNote,
   midiToStaffY,
 } from '../audio/staffGeometry';
+import { renderScoreSvgRemote } from '../audio/renderScoreSvgRemote';
 
 export type SheetMusicViewProps = {
   notes: DetectedNote[];
+  /** Optional analyzed score (rhythm, meter, key, chords, LH/RH). When present and not listening, renders grand staff. */
+  analysis?: ScoreAnalysis | null;
   isListening: boolean;
   /** After mic stops: server / Basic Pitch / YIN is still running. */
   isTranscribing?: boolean;
@@ -35,6 +39,34 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 const SYSTEM_GAP = 10;
 
+const GRAND_GAP = 18;
+const TREBLE_LINES = STAFF_LINE_YS;
+const BASS_LINES = TREBLE_LINES.map((y) => y + 86);
+
+function noteHeadFill(value: NoteValue): { fill: string; stroke: string } {
+  if (value === 'whole' || value === 'half' || value === 'half_dotted') {
+    return { fill: 'rgba(255,255,255,0.08)', stroke: '#FFFFFF' };
+  }
+  return { fill: '#FFFFFF', stroke: 'rgba(15,23,42,0.25)' };
+}
+
+function durationGlyph(value: NoteValue): string {
+  if (value === 'whole') return '𝅝';
+  if (value === 'half') return '𝅗𝅥';
+  if (value === 'half_dotted') return '𝅗𝅥.';
+  if (value === 'quarter') return '𝅘𝅥';
+  if (value === 'quarter_dotted') return '𝅘𝅥.';
+  if (value === 'eighth') return '𝅘𝅥𝅮';
+  if (value === 'eighth_dotted') return '𝅘𝅥𝅮.';
+  if (value === 'sixteenth') return '𝅘𝅥𝅯';
+  return '𝅘𝅥𝅰';
+}
+
+function accidentalStack(kind: 'sharp' | 'flat', count: number): string[] {
+  const sym = kind === 'sharp' ? '♯' : '♭';
+  return Array.from({ length: Math.max(0, count) }, () => sym);
+}
+
 function chunkNotesByWidth(sorted: DetectedNote[], rowWidth: number): DetectedNote[][] {
   const usable = Math.max(NOTE_W * 2, rowWidth - CLEF_W - 40);
   const notesPerRow = Math.max(1, Math.floor(usable / NOTE_W));
@@ -44,6 +76,228 @@ function chunkNotesByWidth(sorted: DetectedNote[], rowWidth: number): DetectedNo
     chunks.push(sorted.slice(i, i + notesPerRow));
   }
   return chunks;
+}
+
+function GrandStaffSvg({
+  analysis,
+  contentW,
+  svgH,
+  glowId,
+  pulse,
+}: {
+  analysis: ScoreAnalysis;
+  contentW: number;
+  svgH: number;
+  glowId: string | null;
+  pulse: Animated.Value;
+}) {
+  const notes = analysis.notes;
+  const barLenBeats =
+    analysis.timeSignature.beatsPerBar * (analysis.timeSignature.beatUnit === 8 ? 0.5 : 1);
+
+  const scaleX = 34; // px per beat (heuristic)
+  const originX = CLEF_W + 74;
+
+  const accs = accidentalStack(analysis.keySignature.accidentals.kind, analysis.keySignature.accidentals.count);
+
+  const beatToX = (beats: number) => originX + beats * scaleX;
+
+  // Barlines
+  const barlines = analysis.measures.map((m) => m.startBeats).filter((b) => b > 0);
+
+  // Group chord-like stacks by onsetGroupId per staff.
+  const rhGroups = new Map<string, typeof notes>();
+  const lhGroups = new Map<string, typeof notes>();
+  for (const n of notes) {
+    const groups = n.hand === 'RH' ? rhGroups : lhGroups;
+    const arr = groups.get(n.onsetGroupId);
+    if (arr) arr.push(n);
+    else groups.set(n.onsetGroupId, [n]);
+  }
+
+  const drawGroups = (groups: Map<string, typeof notes>, yOffset: number, middleLineY: number) => {
+    const out: React.ReactNode[] = [];
+    for (const [, nsRaw] of groups) {
+      const ns = nsRaw.slice().sort((a, b) => a.midi - b.midi);
+      const x = beatToX(ns[0]!.qOnsetBeats);
+      for (const n of ns) {
+        const cy = midiToStaffY(n.midi) + yOffset;
+        const stemUp = cy > middleLineY;
+        const stemLen = 30;
+        const isCurrent = n.id === glowId;
+        const { fill, stroke } = noteHeadFill(n.value);
+
+        const ledgers = ledgerYsForNote(cy - yOffset).map((ly) => ly + yOffset);
+
+        out.push(
+          <G key={`${n.id}-g`}>
+            {ledgers.map((ly, k) => (
+              <Line
+                key={`lg-${n.id}-${k}`}
+                x1={x - 14}
+                x2={x + 14}
+                y1={ly}
+                y2={ly}
+                stroke="rgba(169,183,214,0.65)"
+                strokeWidth={1}
+              />
+            ))}
+            {isCurrent ? (
+              <AnimatedCircle
+                cx={x}
+                cy={cy}
+                r={14}
+                fill="#3AA0FF"
+                opacity={pulse.interpolate({ inputRange: [0.4, 1], outputRange: [0.18, 0.32] })}
+              />
+            ) : null}
+            <G transform={`rotate(-15 ${x} ${cy})`}>
+              <Ellipse cx={x} cy={cy} rx={7} ry={5} fill={fill} stroke={stroke} strokeWidth={0.9} />
+            </G>
+            {stemUp ? (
+              <Line
+                x1={x + 4}
+                y1={cy - 5}
+                x2={x + 4}
+                y2={cy - 5 - stemLen}
+                stroke="#FFFFFF"
+                strokeWidth={1.8}
+                strokeLinecap="round"
+              />
+            ) : (
+              <Line
+                x1={x - 4}
+                y1={cy + 5}
+                x2={x - 4}
+                y2={cy + 5 + stemLen}
+                stroke="#FFFFFF"
+                strokeWidth={1.8}
+                strokeLinecap="round"
+              />
+            )}
+            <SvgText
+              x={x}
+              y={cy + 22}
+              fontSize={10}
+              fill="rgba(169,183,214,0.9)"
+              textAnchor="middle"
+            >
+              {durationGlyph(n.value)}
+            </SvgText>
+          </G>,
+        );
+      }
+    }
+    return out;
+  };
+
+  return (
+    <Svg width={contentW} height={svgH}>
+      <G opacity={0.92}>
+        {TREBLE_LINES.map((y, i) => (
+          <Line
+            key={`tln-${i}`}
+            x1={CLEF_W + 6}
+            x2={contentW - 12}
+            y1={y}
+            y2={y}
+            stroke="rgba(169,183,214,0.55)"
+            strokeWidth={1.2}
+          />
+        ))}
+        {BASS_LINES.map((y, i) => (
+          <Line
+            key={`bln-${i}`}
+            x1={CLEF_W + 6}
+            x2={contentW - 12}
+            y1={y}
+            y2={y}
+            stroke="rgba(169,183,214,0.55)"
+            strokeWidth={1.2}
+          />
+        ))}
+      </G>
+
+      {/* Clefs (unicode as a pragmatic start) */}
+      <SvgText x={CLEF_W - 22} y={58} fontSize={34} fill="rgba(255,255,255,0.92)">
+        𝄞
+      </SvgText>
+      <SvgText x={CLEF_W - 22} y={58 + 86} fontSize={34} fill="rgba(255,255,255,0.92)">
+        𝄢
+      </SvgText>
+
+      {/* Key signature (simple stack) */}
+      {accs.map((sym, i) => (
+        <SvgText
+          key={`ks-${i}`}
+          x={CLEF_W + 10 + i * 10}
+          y={48}
+          fontSize={16}
+          fill="rgba(255,255,255,0.85)"
+        >
+          {sym}
+        </SvgText>
+      ))}
+      {accs.map((sym, i) => (
+        <SvgText
+          key={`ksb-${i}`}
+          x={CLEF_W + 10 + i * 10}
+          y={48 + 86}
+          fontSize={16}
+          fill="rgba(255,255,255,0.85)"
+        >
+          {sym}
+        </SvgText>
+      ))}
+
+      {/* Time signature */}
+      <SvgText x={CLEF_W + 40} y={34} fontSize={16} fill="rgba(255,255,255,0.85)">
+        {analysis.timeSignature.beatsPerBar}
+      </SvgText>
+      <SvgText x={CLEF_W + 40} y={54} fontSize={16} fill="rgba(255,255,255,0.85)">
+        {analysis.timeSignature.beatUnit}
+      </SvgText>
+      <SvgText x={CLEF_W + 40} y={34 + 86} fontSize={16} fill="rgba(255,255,255,0.85)">
+        {analysis.timeSignature.beatsPerBar}
+      </SvgText>
+      <SvgText x={CLEF_W + 40} y={54 + 86} fontSize={16} fill="rgba(255,255,255,0.85)">
+        {analysis.timeSignature.beatUnit}
+      </SvgText>
+
+      {/* Barlines */}
+      {barlines.map((b) => {
+        const x = beatToX(b);
+        return (
+          <G key={`bar-${b}`}>
+            <Line x1={x} x2={x} y1={TREBLE_LINES[0]!} y2={BASS_LINES[BASS_LINES.length - 1]!} stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+          </G>
+        );
+      })}
+
+      {/* Notes */}
+      {drawGroups(rhGroups, 0, MIDDLE_LINE_Y)}
+      {drawGroups(lhGroups, 86, MIDDLE_LINE_Y + 86)}
+
+      {/* Chord labels (top) */}
+      {analysis.chords.slice(0, 24).map((c, i) => (
+        <SvgText
+          key={`ch-${i}`}
+          x={beatToX(c.onsetBeats)}
+          y={14}
+          fontSize={10}
+          fill="rgba(45,212,191,0.9)"
+          textAnchor="middle"
+        >
+          {c.label}
+        </SvgText>
+      ))}
+
+      {/* Key label */}
+      <SvgText x={contentW - 10} y={14} fontSize={10} fill="rgba(169,183,214,0.8)" textAnchor="end">
+        {`${analysis.keySignature.tonic} ${analysis.keySignature.mode}`}
+      </SvgText>
+    </Svg>
+  );
 }
 
 function StaffSystemSvg({
@@ -148,6 +402,7 @@ function StaffSystemSvg({
 
 export function SheetMusicView({
   notes,
+  analysis = null,
   isListening,
   isTranscribing = false,
   isModelLoaded,
@@ -161,6 +416,8 @@ export function SheetMusicView({
   const scrollRef = useRef<ScrollView>(null);
   const vScrollRef = useRef<ScrollView>(null);
   const pulse = useRef(new Animated.Value(0.4)).current;
+  const [engravedSvg, setEngravedSvg] = useState<string | null>(null);
+  const [engraveError, setEngraveError] = useState<string | null>(null);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -266,6 +523,76 @@ export function SheetMusicView({
     </>
   );
 
+  const canUseGrand = analysis != null && !isListening && !isTranscribing && analysis.notes.length > 0;
+
+  useEffect(() => {
+    // Only fetch engraved SVG for the "portativ mare" expanded view (multilineStaff).
+    if (!canUseGrand || !multilineStaff || analysis == null) {
+      setEngravedSvg(null);
+      setEngraveError(null);
+      return;
+    }
+    let cancelled = false;
+    const ac = new AbortController();
+    setEngraveError(null);
+    setEngravedSvg(null);
+    void (async () => {
+      const r = await renderScoreSvgRemote(analysis, ac.signal);
+      if (cancelled) return;
+      if (r.ok) {
+        setEngravedSvg(r.svg);
+      } else {
+        setEngraveError(r.error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [analysis, canUseGrand, multilineStaff]);
+
+  if (canUseGrand) {
+    const maxBeat =
+      analysis.measures.length > 0
+        ? analysis.measures[analysis.measures.length - 1]!.endBeats
+        : Math.max(...analysis.notes.map((n) => n.qOnsetBeats + n.qDurBeats));
+    const scaleX = 34;
+    const contentW = Math.max(width, CLEF_W + 120 + maxBeat * scaleX + 24);
+    const svgH = 20 + 68 + 86 + 68 + GRAND_GAP;
+    const useRemote = multilineStaff && engravedSvg != null;
+    return (
+      <View style={[styles.wrap, { width, height }]}>
+        {overlays}
+        {useRemote ? (
+          <ScrollView
+            ref={scrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ minWidth: contentW, alignItems: 'center' }}
+            nestedScrollEnabled
+          >
+            <SvgXml xml={engravedSvg} width={contentW} height={svgH} />
+          </ScrollView>
+        ) : (
+          <ScrollView
+            ref={scrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ minWidth: contentW, alignItems: 'center' }}
+            nestedScrollEnabled
+          >
+            <GrandStaffSvg analysis={analysis} contentW={contentW} svgH={svgH} glowId={glowId} pulse={pulse} />
+          </ScrollView>
+        )}
+        {multilineStaff && engravedSvg == null && engraveError ? (
+          <View style={styles.engraveHint}>
+            <Text style={styles.engraveHintText}>SVG server: {engraveError}</Text>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
   if (multilineStaff && sorted.length > 0) {
     return (
       <View style={[styles.wrap, { width, height }]}>
@@ -345,6 +672,24 @@ const styles = StyleSheet.create({
   msgText: {
     color: 'rgba(248,250,252,0.88)',
     fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  engraveHint: {
+    position: 'absolute',
+    left: 10,
+    right: 10,
+    bottom: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.25)',
+  },
+  engraveHintText: {
+    color: 'rgba(226,232,240,0.82)',
+    fontSize: 11,
     fontWeight: '600',
     textAlign: 'center',
   },
