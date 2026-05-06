@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Ellipse, G, Line, Path, SvgXml, Text as SvgText } from 'react-native-svg';
 
 import type { DetectedNote } from '../../types/notes';
@@ -22,6 +22,8 @@ export type SheetMusicViewProps = {
   isListening: boolean;
   /** After mic stops: server / Basic Pitch / YIN is still running. */
   isTranscribing?: boolean;
+  /** 0–100 while `isTranscribing` (from useNoteDetection). */
+  transcriptionProgress?: number | null;
   isModelLoaded: boolean;
   width: number;
   height?: number;
@@ -76,6 +78,36 @@ function chunkNotesByWidth(sorted: DetectedNote[], rowWidth: number): DetectedNo
     chunks.push(sorted.slice(i, i + notesPerRow));
   }
   return chunks;
+}
+
+function TranscribeOverlay({
+  pulse,
+  progress,
+}: {
+  pulse: Animated.Value;
+  progress: number | null;
+}) {
+  return (
+    <View style={styles.transcribeOverlay} pointerEvents="auto">
+      <Animated.View
+        style={[
+          styles.transcribeTopBar,
+          { opacity: pulse.interpolate({ inputRange: [0.4, 1], outputRange: [0.55, 1] }) },
+        ]}
+      />
+      <View style={styles.transcribeCard}>
+        <ActivityIndicator size="large" color="rgba(45,212,191,0.95)" />
+        <Text style={styles.transcribeTitle}>Se construiește portativul</Text>
+        <Text style={styles.transcribePct}>
+          {progress != null && Number.isFinite(progress) ? `${Math.round(progress)}%` : 'Pornire…'}
+        </Text>
+        <Text style={styles.transcribeSub}>
+          Analizăm înregistrarea (server PC, AI local sau ambele). Poate dura 1–2 minute — nu închide
+          aplicația.
+        </Text>
+      </View>
+    </View>
+  );
 }
 
 function GrandStaffSvg({
@@ -138,8 +170,8 @@ function GrandStaffSvg({
                 x2={x + 14}
                 y1={ly}
                 y2={ly}
-                stroke="rgba(169,183,214,0.65)"
-                strokeWidth={1}
+                stroke="rgba(186,198,230,0.82)"
+                strokeWidth={1.15}
               />
             ))}
             {isCurrent ? (
@@ -152,7 +184,7 @@ function GrandStaffSvg({
               />
             ) : null}
             <G transform={`rotate(-15 ${x} ${cy})`}>
-              <Ellipse cx={x} cy={cy} rx={7} ry={5} fill={fill} stroke={stroke} strokeWidth={0.9} />
+              <Ellipse cx={x} cy={cy} rx={7.5} ry={5.2} fill={fill} stroke={stroke} strokeWidth={1} />
             </G>
             {stemUp ? (
               <Line
@@ -201,8 +233,8 @@ function GrandStaffSvg({
             x2={contentW - 12}
             y1={y}
             y2={y}
-            stroke="rgba(169,183,214,0.55)"
-            strokeWidth={1.2}
+            stroke="rgba(186,198,230,0.78)"
+            strokeWidth={1.35}
           />
         ))}
         {BASS_LINES.map((y, i) => (
@@ -212,8 +244,8 @@ function GrandStaffSvg({
             x2={contentW - 12}
             y1={y}
             y2={y}
-            stroke="rgba(169,183,214,0.55)"
-            strokeWidth={1.2}
+            stroke="rgba(186,198,230,0.78)"
+            strokeWidth={1.35}
           />
         ))}
       </G>
@@ -323,8 +355,8 @@ function StaffSystemSvg({
             x2={contentW - 12}
             y1={y}
             y2={y}
-            stroke="rgba(169,183,214,0.55)"
-            strokeWidth={1.2}
+            stroke="rgba(186,198,230,0.78)"
+            strokeWidth={1.35}
           />
         ))}
       </G>
@@ -348,8 +380,8 @@ function StaffSystemSvg({
                 x2={cx + 14}
                 y1={ly}
                 y2={ly}
-                stroke="rgba(169,183,214,0.65)"
-                strokeWidth={1}
+                stroke="rgba(186,198,230,0.82)"
+                strokeWidth={1.15}
               />
             ))}
             {isCurrent ? (
@@ -362,7 +394,15 @@ function StaffSystemSvg({
               />
             ) : null}
             <G transform={`rotate(-15 ${cx} ${cy})`}>
-              <Ellipse cx={cx} cy={cy} rx={7} ry={5} fill="#FFFFFF" stroke="rgba(15,23,42,0.25)" strokeWidth={0.8} />
+              <Ellipse
+                cx={cx}
+                cy={cy}
+                rx={7.5}
+                ry={5.2}
+                fill="#FFFFFF"
+                stroke="rgba(15,23,42,0.35)"
+                strokeWidth={1}
+              />
             </G>
             {acc ? (
               <SvgText x={cx - 14} y={cy + 4} fontSize={10} fill="rgba(255,255,255,0.82)">
@@ -405,6 +445,7 @@ export function SheetMusicView({
   analysis = null,
   isListening,
   isTranscribing = false,
+  transcriptionProgress = null,
   isModelLoaded,
   width,
   height = 120,
@@ -476,7 +517,6 @@ export function SheetMusicView({
 
   const showBlockingModelOverlay = !isModelLoaded && !isListening;
   const waitingForNotes = isListening && sorted.length === 0;
-  const transcribingHint = isTranscribing && sorted.length === 0;
   const idleHint = !isListening && !isTranscribing && sorted.length === 0 && isModelLoaded;
 
   const overlays = (
@@ -509,14 +549,6 @@ export function SheetMusicView({
             <Text style={styles.msgText}>
               {isModelLoaded ? 'Listening…' : 'Listening… (loading model)'}
             </Text>
-          </Animated.View>
-        </View>
-      ) : null}
-
-      {transcribingHint ? (
-        <View style={styles.overlayMsg}>
-          <Animated.View style={{ opacity: pulse }}>
-            <Text style={styles.msgText}>Transcriere…</Text>
           </Animated.View>
         </View>
       ) : null}
@@ -563,6 +595,7 @@ export function SheetMusicView({
     return (
       <View style={[styles.wrap, { width, height }]}>
         {overlays}
+        {isTranscribing ? <TranscribeOverlay pulse={pulse} progress={transcriptionProgress ?? null} /> : null}
         {useRemote ? (
           <ScrollView
             ref={scrollRef}
@@ -597,6 +630,7 @@ export function SheetMusicView({
     return (
       <View style={[styles.wrap, { width, height }]}>
         {overlays}
+        {isTranscribing ? <TranscribeOverlay pulse={pulse} progress={transcriptionProgress ?? null} /> : null}
         <ScrollView
           ref={vScrollRef}
           style={{ flex: 1 }}
@@ -632,6 +666,7 @@ export function SheetMusicView({
   return (
     <View style={[styles.wrap, { width, height }]}>
       {overlays}
+      {isTranscribing ? <TranscribeOverlay pulse={pulse} progress={transcriptionProgress ?? null} /> : null}
 
       <ScrollView
         ref={scrollRef}
@@ -692,5 +727,52 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  transcribeOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(7,17,31,0.78)',
+  },
+  transcribeTopBar: {
+    position: 'absolute',
+    top: 10,
+    left: '8%',
+    right: '8%',
+    height: 3,
+    borderRadius: 3,
+    backgroundColor: 'rgba(45,212,191,0.85)',
+  },
+  transcribeCard: {
+    alignItems: 'center',
+    paddingVertical: 22,
+    paddingHorizontal: 20,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(45,212,191,0.42)',
+    backgroundColor: 'rgba(15,23,42,0.94)',
+    maxWidth: 320,
+    gap: 12,
+  },
+  transcribeTitle: {
+    color: 'rgba(248,250,252,0.95)',
+    fontSize: 17,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  transcribePct: {
+    color: 'rgba(45,212,191,0.95)',
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  transcribeSub: {
+    color: 'rgba(203,213,225,0.88)',
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 19,
   },
 });

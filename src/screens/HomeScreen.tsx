@@ -615,7 +615,13 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
                 staffExpanded ? 'Restrânge portativul' : 'Extinde portativul pe mai multe linii'
               }
             >
-              <GlassCard style={[styles.staffCard, staffExpanded && styles.staffCardExpanded]}>
+              <GlassCard
+                style={[
+                  styles.staffCard,
+                  staffExpanded && styles.staffCardExpanded,
+                  detection.isProcessing && styles.staffCardProcessing,
+                ]}
+              >
                 <Text style={styles.staffExpandHint}>
                   {staffExpanded
                     ? 'Apasă din nou pentru portativ compact'
@@ -663,6 +669,7 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
                   highlightNoteId={staffPlaybackHighlightId}
                   isListening={detection.isListening || detection.isStartingMic}
                   isTranscribing={detection.isProcessing}
+                  transcriptionProgress={detection.transcriptionProgress}
                   isModelLoaded={detection.isModelLoaded}
                   width={staffW}
                   height={staffExpanded ? staffExpandedInnerHeight : 130}
@@ -1147,6 +1154,10 @@ const styles = StyleSheet.create({
   },
   staffCardExpanded: {
     paddingVertical: spacing.md,
+  },
+  staffCardProcessing: {
+    borderWidth: 2,
+    borderColor: 'rgba(45,212,191,0.5)',
   },
   staffExpandHint: {
     ...typography.caption,
