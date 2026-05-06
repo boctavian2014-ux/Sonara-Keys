@@ -34,6 +34,14 @@ uvicorn app:app --host 0.0.0.0 --port 8789
 
 Use the provided `Dockerfile` (CUDA + PyTorch). This is designed for GPU-capable platforms (not Railway).
 
+## API key (recommended for public URLs)
+
+On the server, set environment variable `PIANO_GPU_API_KEY` to a long random string, then restart Uvicorn.  
+`POST /transcribe-window` then requires header `X-Sonara-Api-Key` with the same value.  
+`GET /health` stays open (no key).
+
+If `PIANO_GPU_API_KEY` is unset, the server accepts requests without a key (local dev only).
+
 ## App configuration
 
 Set this in the Expo app `.env`:
@@ -41,5 +49,7 @@ Set this in the Expo app `.env`:
 ```env
 EXPO_PUBLIC_PIANO_GPU_API_URL=https://<your-gpu-service-domain>
 EXPO_PUBLIC_PIANO_GPU_STREAMING=1
+# Must match server PIANO_GPU_API_KEY when the server enforces it (bundled into the client — not a true secret)
+EXPO_PUBLIC_PIANO_GPU_API_KEY=<same-as-server>
 ```
 

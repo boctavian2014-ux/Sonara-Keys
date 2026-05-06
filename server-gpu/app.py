@@ -3,12 +3,13 @@ from __future__ import annotations
 import base64
 import io
 import os
+import secrets
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Annotated, Any, Dict, List
 
 import numpy as np
 import soundfile as sf
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -45,6 +46,23 @@ class TranscribeWindowBody(BaseModel):
     windowStartSec: float
 
 
+def _require_gpu_api_key(
+    x_sonara_api_key: Annotated[str | None, Header(alias="X-Sonara-Api-Key")] = None,
+) -> None:
+    """If PIANO_GPU_API_KEY is set, require matching X-Sonara-Api-Key header."""
+    expected = os.environ.get("PIANO_GPU_API_KEY", "").strip()
+    if not expected:
+        return
+    if x_sonara_api_key is None:
+        raise HTTPException(status_code=401, detail="Missing API key.")
+    try:
+        ok = secrets.compare_digest(x_sonara_api_key, expected)
+    except (TypeError, ValueError):
+        ok = False
+    if not ok:
+        raise HTTPException(status_code=401, detail="Invalid API key.")
+
+
 app = FastAPI(title="Sonara Keys — GPU piano transcription")
 app.add_middleware(
     CORSMiddleware,
@@ -69,7 +87,10 @@ def decode_wav_base64(wav_b64: str) -> tuple[np.ndarray, int]:
 
 
 @app.post("/transcribe-window")
-def transcribe_window(body: TranscribeWindowBody):
+def transcribe_window(
+    body: TranscribeWindowBody,
+    _: Annotated[None, Depends(_require_gpu_api_key)],
+):
     t0 = time.time()
     audio, sr = decode_wav_base64(body.wavBase64)
 

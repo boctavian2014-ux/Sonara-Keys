@@ -10,6 +10,11 @@ const PIANO_GPU_API_URL =
     ? process.env.EXPO_PUBLIC_PIANO_GPU_API_URL.trim()
     : '';
 
+const PIANO_GPU_API_KEY =
+  typeof process.env.EXPO_PUBLIC_PIANO_GPU_API_KEY === 'string'
+    ? process.env.EXPO_PUBLIC_PIANO_GPU_API_KEY.trim()
+    : '';
+
 function uint8ToBase64(bytes: Uint8Array): string {
   const page = 0x8000;
   const chunks: string[] = [];
@@ -65,11 +70,14 @@ export async function transcribeWindowRemote(args: {
   const wavBase64 = uint8ToBase64(new Uint8Array(wav));
   const url = `${base}/transcribe-window`;
 
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (PIANO_GPU_API_KEY) headers['X-Sonara-Api-Key'] = PIANO_GPU_API_KEY;
+
   let res: Response;
   try {
     res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         sessionId: args.sessionId,
         wavBase64,
@@ -91,7 +99,16 @@ export async function transcribeWindowRemote(args: {
   }
 
   if (!res.ok || !json.ok) {
-    const err = (json as { ok: false; error?: string }).error;
+    const j = json as { ok?: boolean; error?: string; detail?: unknown };
+    let err = j.error;
+    if (!err && j.detail != null) {
+      err =
+        typeof j.detail === 'string'
+          ? j.detail
+          : Array.isArray(j.detail)
+            ? j.detail.map((x) => String(x)).join(' ')
+            : String(j.detail);
+    }
     return { ok: false, error: err || `HTTP ${res.status}` };
   }
 
