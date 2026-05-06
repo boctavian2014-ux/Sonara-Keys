@@ -34,8 +34,17 @@ const MIN_DURATION_SEC = 0.35;
 /** Cap PCM sent to analysis — Basic Pitch+TFJS on device is heavy; keep this modest. */
 const MAX_ANALYSIS_SEC = 8;
 
-const STREAM_WINDOW_SEC = 1.0;
-const STREAM_HOP_SEC = 0.5;
+function parseEnvFloat(name: string, fallback: number, min: number, max: number): number {
+  const raw = typeof process.env[name] === 'string' ? process.env[name]!.trim() : '';
+  const n = raw.length > 0 ? Number(raw) : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+/** GPU streaming only: smaller window = less WAV / faster inferență (mai puține 502 la proxy RunPod). */
+const STREAM_WINDOW_SEC = parseEnvFloat('EXPO_PUBLIC_PIANO_GPU_WINDOW_SEC', 0.72, 0.4, 1.5);
+const STREAM_HOP_SEC_RAW = parseEnvFloat('EXPO_PUBLIC_PIANO_GPU_HOP_SEC', 0.36, 0.18, 1.0);
+const STREAM_HOP_SEC = Math.min(STREAM_HOP_SEC_RAW, STREAM_WINDOW_SEC * 0.85);
 
 export function useNoteDetection() {
   const mic = useMicrophone();

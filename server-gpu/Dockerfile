@@ -20,5 +20,6 @@ COPY app.py ./
 
 EXPOSE 8789
 
-CMD ["python3","-m","uvicorn","app:app","--host","0.0.0.0","--port","8789"]
+# Longer keep-alive helps slow GPU inference behind reverse proxies (e.g. RunPod).
+CMD ["python3","-m","uvicorn","app:app","--host","0.0.0.0","--port","8789","--timeout-keep-alive","180"]
 

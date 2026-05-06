@@ -5,6 +5,7 @@ import io
 import os
 import secrets
 import time
+from contextlib import asynccontextmanager
 from typing import Annotated, Any, Dict, List
 
 import numpy as np
@@ -63,7 +64,17 @@ def _require_gpu_api_key(
         raise HTTPException(status_code=401, detail="Invalid API key.")
 
 
-app = FastAPI(title="Sonara Keys — GPU piano transcription")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Optional eager model load so the first /transcribe-window is not cold (helps RunPod proxy timeouts)."""
+    if os.environ.get("PTI_WARMUP_STARTUP", "").strip() == "1":
+        t0 = time.time()
+        get_transcriptor()
+        print(f"[server-gpu] PTI_WARMUP_STARTUP model ready in {int((time.time() - t0) * 1000)}ms", flush=True)
+    yield
+
+
+app = FastAPI(title="Sonara Keys — GPU piano transcription", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -81,6 +92,7 @@ def root():
         "service": "sonara-keys-gpu",
         "health": "/health",
         "transcribe_window": "POST /transcribe-window",
+        "warmup": "POST /warmup",
         "docs": "/docs",
     }
 
@@ -88,6 +100,14 @@ def root():
 @app.get("/health")
 def health():
     return {"ok": True, "engine": "piano_transcription_inference"}
+
+
+@app.post("/warmup")
+def warmup_endpoint(_: Annotated[None, Depends(_require_gpu_api_key)]):
+    """Load PianoTranscription into memory (same as first real request). Call once after pod start."""
+    t0 = time.time()
+    get_transcriptor()
+    return {"ok": True, "loadMs": int((time.time() - t0) * 1000)}
 
 
 def decode_wav_base64(wav_b64: str) -> tuple[np.ndarray, int]:

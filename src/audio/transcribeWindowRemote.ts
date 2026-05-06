@@ -15,6 +15,15 @@ const PIANO_GPU_API_KEY =
     ? process.env.EXPO_PUBLIC_PIANO_GPU_API_KEY.trim()
     : '';
 
+function parseGpuFetchTimeoutMs(): number {
+  const raw =
+    typeof process.env.EXPO_PUBLIC_PIANO_GPU_FETCH_TIMEOUT_MS === 'string'
+      ? process.env.EXPO_PUBLIC_PIANO_GPU_FETCH_TIMEOUT_MS.trim()
+      : '';
+  const n = raw.length > 0 ? Number(raw) : 120_000;
+  return Number.isFinite(n) && n >= 20_000 ? n : 120_000;
+}
+
 function uint8ToBase64(bytes: Uint8Array): string {
   const page = 0x8000;
   const chunks: string[] = [];
@@ -73,6 +82,13 @@ export async function transcribeWindowRemote(args: {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (PIANO_GPU_API_KEY) headers['X-Sonara-Api-Key'] = PIANO_GPU_API_KEY;
 
+  const timeoutMs = parseGpuFetchTimeoutMs();
+  const combined = new AbortController();
+  const tid = setTimeout(() => combined.abort(), timeoutMs);
+  const parent = args.signal;
+  const onParentAbort = () => combined.abort();
+  if (parent) parent.addEventListener('abort', onParentAbort);
+
   let res: Response;
   try {
     res = await fetch(url, {
@@ -84,11 +100,23 @@ export async function transcribeWindowRemote(args: {
         sampleRate: args.sampleRate,
         windowStartSec: args.windowStartSec,
       }),
-      signal: args.signal,
+      signal: combined.signal,
     });
   } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      if (parent?.aborted) {
+        return { ok: false, error: 'Aborted.' };
+      }
+      return {
+        ok: false,
+        error: `GPU request timeout (>${timeoutMs} ms). Increase EXPO_PUBLIC_PIANO_GPU_FETCH_TIMEOUT_MS or use a smaller EXPO_PUBLIC_PIANO_GPU_WINDOW_SEC.`,
+      };
+    }
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg || 'Network error.' };
+  } finally {
+    clearTimeout(tid);
+    parent?.removeEventListener('abort', onParentAbort);
   }
 
   const rawText = await res.text();
