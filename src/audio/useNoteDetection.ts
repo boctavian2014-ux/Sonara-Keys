@@ -4,12 +4,17 @@ import { mergeBuffers, preprocessAudioAllowQuiet } from './audioUtils';
 import { transcribeLocalPitch } from './localPitchTranscriber';
 import { transcribeRemote } from './transcribeRemote';
 import { postProcess } from './notePostProcess';
+import { transcribeWindowRemote } from './transcribeWindowRemote';
 import type { DetectedNote } from '../../types/notes';
 
 const TRANSCRIBE_API_URL =
   typeof process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL === 'string'
     ? process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL.trim()
     : '';
+
+const USE_PIANO_GPU_STREAMING =
+  typeof process.env.EXPO_PUBLIC_PIANO_GPU_STREAMING === 'string' &&
+  process.env.EXPO_PUBLIC_PIANO_GPU_STREAMING.trim() === '1';
 
 /** Set to `1` to skip TensorFlow Basic Pitch on the phone (much faster; worse on chords). */
 const SKIP_ONDEVICE_BASIC_PITCH =
@@ -28,6 +33,9 @@ const TRANSCRIBE_TIMEOUT_MS = (() => {
 const MIN_DURATION_SEC = 0.35;
 /** Cap PCM sent to analysis — Basic Pitch+TFJS on device is heavy; keep this modest. */
 const MAX_ANALYSIS_SEC = 8;
+
+const STREAM_WINDOW_SEC = 1.0;
+const STREAM_HOP_SEC = 0.5;
 
 export function useNoteDetection() {
   const mic = useMicrophone();
@@ -48,6 +56,10 @@ export function useNoteDetection() {
   const listenWallStartRef = useRef(0);
   const captureEpochRef = useRef(0);
   const startLockRef = useRef(false);
+  const streamSessionIdRef = useRef<string | null>(null);
+  const streamNextAtWallMsRef = useRef(0);
+  const streamRollingRef = useRef<Float32Array[]>([]);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     detectedNotesRef.current = detectedNotes;
@@ -85,9 +97,17 @@ export function useNoteDetection() {
     setIsStartingMic(true);
     try {
       pcmBucketRef.current = [];
+      streamRollingRef.current = [];
+      streamAbortRef.current?.abort();
+      streamAbortRef.current = null;
+      streamSessionIdRef.current = `s-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      streamNextAtWallMsRef.current = 0;
       const micResult = await mic.startListening((chunk) => {
         if (epochAtStart !== captureEpochRef.current) return;
         pcmBucketRef.current.push(chunk);
+        if (USE_PIANO_GPU_STREAMING) {
+          streamRollingRef.current.push(chunk);
+        }
       });
       if (epochAtStart !== captureEpochRef.current) {
         pcmBucketRef.current = [];
@@ -101,16 +121,85 @@ export function useNoteDetection() {
       }
       sessionSampleRateRef.current = micResult.sampleRate;
       listenWallStartRef.current = Date.now();
+      streamNextAtWallMsRef.current = listenWallStartRef.current + STREAM_WINDOW_SEC * 1000;
     } finally {
       startLockRef.current = false;
       setIsStartingMic(false);
     }
   }, [cancelAnalysis, mic]);
 
+  useEffect(() => {
+    if (!USE_PIANO_GPU_STREAMING) return;
+    if (!mic.isListening) return;
+    const tStart = listenWallStartRef.current;
+    if (tStart <= 0) return;
+
+    let cancelled = false;
+    const ac = new AbortController();
+    streamAbortRef.current = ac;
+
+    const tick = async () => {
+      if (cancelled || !mic.isListening) return;
+      const now = Date.now();
+      const nextAt = streamNextAtWallMsRef.current;
+      if (nextAt <= 0 || now < nextAt) {
+        setTimeout(() => void tick(), 60);
+        return;
+      }
+
+      const sr = sessionSampleRateRef.current;
+      const winSamples = Math.floor(STREAM_WINDOW_SEC * sr);
+      const hopMs = STREAM_HOP_SEC * 1000;
+      streamNextAtWallMsRef.current = nextAt + hopMs;
+
+      // Merge rolling chunks and keep only last window
+      const merged = mergeBuffers(streamRollingRef.current);
+      const tail = merged.length > winSamples ? merged.subarray(merged.length - winSamples) : merged;
+      // Trim rolling buffer to avoid growth
+      streamRollingRef.current = [tail];
+
+      const pre = preprocessAudioAllowQuiet(tail);
+      const windowEndSec = Math.max(0, (nextAt - tStart) / 1000);
+      const windowStartSec = Math.max(0, windowEndSec - STREAM_WINDOW_SEC);
+
+      const sessionId = streamSessionIdRef.current;
+      if (!sessionId) return;
+
+      const r = await transcribeWindowRemote({
+        sessionId,
+        windowStartSec,
+        pcm: pre,
+        sampleRate: sr,
+        signal: ac.signal,
+      });
+      if (!r.ok) {
+        if (__DEV__) console.warn('[useNoteDetection] transcribeWindowRemote', r.error);
+        setTimeout(() => void tick(), 30);
+        return;
+      }
+
+      const processed = postProcess(r.notes, detectedNotesRef.current, 22);
+      if (processed.length > 0) {
+        setDetectedNotes((prev) => [...prev, ...processed].sort((a, b) => a.startTime - b.startTime));
+      }
+
+      setTimeout(() => void tick(), 30);
+    };
+
+    void tick();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [mic.isListening, mic.isListening]);
+
   const stopListening = useCallback(async () => {
     startLockRef.current = false;
     const t0 = listenWallStartRef.current;
     listenWallStartRef.current = 0;
+
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
 
     await mic.stopListening();
     if (t0 > 0) {
