@@ -287,7 +287,7 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
     if (kinde == null) return;
     setKindeAuthBusy(true);
     try {
-      await kinde.login({});
+      await kinde.login({ hasSuccessPage: false });
     } catch (e) {
       Alert.alert('Autentificare', e instanceof Error ? e.message : 'A eșuat conectarea.');
     } finally {
@@ -299,7 +299,7 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
     if (kinde == null) return;
     setKindeAuthBusy(true);
     try {
-      await kinde.register({});
+      await kinde.register({ hasSuccessPage: false });
     } catch (e) {
       Alert.alert('Înregistrare', e instanceof Error ? e.message : 'A eșuat.');
     } finally {
