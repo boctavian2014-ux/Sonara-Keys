@@ -1,5 +1,6 @@
 import type { DetectedNote } from '../../types/notes';
 import { encodeWavMono16 } from './encodeWavMono16';
+import { normalizeExpoPublicApiBase } from './normalizeExpoPublicApiBase';
 
 function uint8ToBase64(bytes: Uint8Array): string {
   const page = 0x8000;
@@ -70,7 +71,12 @@ export async function transcribeRemote(
   sampleRate: number,
   signal?: AbortSignal,
 ): Promise<DetectedNote[] | null> {
-  const base = baseUrl.replace(/\/$/, '');
+  const norm = normalizeExpoPublicApiBase(baseUrl.replace(/\/$/, ''));
+  if (!norm.ok) {
+    if (__DEV__) console.warn('[transcribeRemote] invalid base URL:', norm.error);
+    return null;
+  }
+  const base = norm.base;
   const url = `${base}/transcribe`;
   const tAll = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
@@ -134,7 +140,8 @@ export async function transcribeRemote(
       if (__DEV__) console.warn('[transcribeRemote] json aborted');
       return null;
     }
-    throw e;
+    if (__DEV__) console.warn('[transcribeRemote] json fetch failed', e);
+    return null;
   }
   const fetchJsonMs =
     (typeof performance !== 'undefined' ? performance.now() : Date.now()) - tFetchJson0;

@@ -118,7 +118,16 @@ export default function AuthScreen({ kinde }: AuthScreenProps) {
               Autentifica-te cu Kinde ca sa sincronizezi melodiile in cloud si sa continui de pe orice dispozitiv.
             </Text>
 
-            {kinde == null || kinde.isLoading ? (
+            {kinde == null ? (
+              <View style={styles.loadingWrap}>
+                <Text style={styles.loadingText}>
+                  Autentificarea nu este disponibilă în acest build. Verifică:
+                  {'\n'}- ai setat `.env` cu `EXPO_PUBLIC_KINDE_DOMAIN` și `EXPO_PUBLIC_KINDE_CLIENT_ID`
+                  {'\n'}- ai repornit Metro cu `npm run start:clear`
+                  {'\n'}- rulezi un build nativ (dev client), nu web.
+                </Text>
+              </View>
+            ) : kinde.isLoading ? (
               <View style={styles.loadingWrap}>
                 <ActivityIndicator color={colors.accentTeal} />
                 <Text style={styles.loadingText}>Pregatim autentificarea...</Text>

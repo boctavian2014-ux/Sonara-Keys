@@ -1,0 +1,5 @@
+# Railway: set this service’s Root Directory to the folder that contains this file
+# (e.g. `server-ts` or `piano-notes-mvp/server-ts` depending on repo layout).
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"

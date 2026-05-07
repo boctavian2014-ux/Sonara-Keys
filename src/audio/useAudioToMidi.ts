@@ -6,6 +6,7 @@ import type { ExpoPlayAudioStreamNative, MicAudioChunk } from '../../types/audio
 import type { DetectedNote } from '../../types/notes';
 import { mergeBuffers } from './audioUtils';
 import { transcribeRemote } from './transcribeRemote';
+import { normalizeExpoPublicApiBase } from './normalizeExpoPublicApiBase';
 import { chunkFromEvent } from './useMicrophone';
 
 const MIC_CONFIG = {
@@ -17,10 +18,19 @@ const MIC_CONFIG = {
 
 const START_MIC_TIMEOUT_MS = 14_000;
 
-const TRANSCRIBE_API_URL =
-  typeof process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL === 'string'
-    ? process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL.trim()
-    : '';
+const TRANSCRIBE_API_URL = (() => {
+  const raw =
+    typeof process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL === 'string'
+      ? process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL.trim()
+      : '';
+  if (!raw) return '';
+  const n = normalizeExpoPublicApiBase(raw);
+  if (!n.ok) {
+    if (__DEV__) console.warn('[useAudioToMidi] EXPO_PUBLIC_TRANSCRIBE_API_URL invalid:', n.error);
+    return '';
+  }
+  return n.base;
+})();
 
 const TRANSCRIBE_TIMEOUT_MS = (() => {
   const raw =

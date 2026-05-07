@@ -1,24 +1,23 @@
-import { Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import type { ReactNode } from 'react';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radius, spacing, typography } from '../../theme';
 
-import { GlassCard } from './GlassCard';
-
 type Props = {
   visible: boolean;
   onClose: () => void;
-  autoTranscribeOnStop: boolean;
-  onAutoTranscribeChange: (v: boolean) => void;
-  transcribeBusy: boolean;
+  title: string;
+  children: ReactNode;
+  doneLabel?: string;
 };
 
 export function SettingsSheet({
   visible,
   onClose,
-  autoTranscribeOnStop,
-  onAutoTranscribeChange,
-  transcribeBusy,
+  title,
+  children,
+  doneLabel = 'Done',
 }: Props) {
   const insets = useSafeAreaInsets();
 
@@ -28,24 +27,10 @@ export function SettingsSheet({
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close settings" />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}>
           <View style={styles.handle} />
-          <Text style={styles.sheetTitle}>Settings</Text>
-          <GlassCard style={styles.card}>
-            <View style={styles.row}>
-              <View style={styles.rowText}>
-                <Text style={styles.label}>Basic Pitch on stop</Text>
-                <Text style={styles.hint}>After you stop, run ML transcription (needs network).</Text>
-              </View>
-              <Switch
-                value={autoTranscribeOnStop}
-                onValueChange={onAutoTranscribeChange}
-                disabled={transcribeBusy}
-                trackColor={{ false: colors.borderStrong, true: 'rgba(45,212,191,0.45)' }}
-                thumbColor={autoTranscribeOnStop ? colors.accentTeal : colors.textMuted}
-              />
-            </View>
-          </GlassCard>
+          <Text style={styles.sheetTitle}>{title}</Text>
+          <View style={styles.content}>{children}</View>
           <Pressable onPress={onClose} style={styles.doneBtn} accessibilityRole="button">
-            <Text style={styles.doneLabel}>Done</Text>
+            <Text style={styles.doneLabel}>{doneLabel}</Text>
           </Pressable>
         </View>
       </View>
@@ -85,27 +70,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginBottom: spacing.lg,
   },
-  card: {
-    marginBottom: spacing.lg,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  rowText: {
-    flex: 1,
-  },
-  label: {
-    ...typography.bodySemibold,
-    color: colors.textPrimary,
-  },
-  hint: {
-    ...typography.caption,
-    color: colors.textMuted,
-    marginTop: spacing.xs,
-    lineHeight: 18,
-  },
+  content: { minHeight: 0 },
   doneBtn: {
     alignItems: 'center',
     paddingVertical: spacing.lg,

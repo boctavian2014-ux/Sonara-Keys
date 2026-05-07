@@ -185,6 +185,21 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, engine: 'basic-pitch-ts' });
 });
 
+app.get('/', (_req, res) => {
+  res.json({
+    ok: true,
+    service: 'server-ts',
+    routes: ['/health', 'POST /transcribe', 'GET /render-score-svg (hint)', 'POST /render-score-svg'],
+  });
+});
+
+app.get('/render-score-svg', (_req, res) => {
+  res.json({
+    ok: true,
+    hint: 'POST JSON { "analysis": ScoreAnalysis } with Content-Type: application/json to receive { ok, svg }.',
+  });
+});
+
 type RenderScoreBody = { analysis?: ScoreAnalysis };
 
 const svgCache = new Map<string, string>();

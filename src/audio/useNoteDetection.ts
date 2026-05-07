@@ -5,12 +5,22 @@ import { transcribeLocalPitch } from './localPitchTranscriber';
 import { transcribeRemote } from './transcribeRemote';
 import { postProcess } from './notePostProcess';
 import { transcribeWindowRemote } from './transcribeWindowRemote';
+import { normalizeExpoPublicApiBase } from './normalizeExpoPublicApiBase';
 import type { DetectedNote } from '../../types/notes';
 
-const TRANSCRIBE_API_URL =
-  typeof process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL === 'string'
-    ? process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL.trim()
-    : '';
+const TRANSCRIBE_API_URL = (() => {
+  const raw =
+    typeof process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL === 'string'
+      ? process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL.trim()
+      : '';
+  if (!raw) return '';
+  const n = normalizeExpoPublicApiBase(raw);
+  if (!n.ok) {
+    if (__DEV__) console.warn('[useNoteDetection] EXPO_PUBLIC_TRANSCRIBE_API_URL invalid:', n.error);
+    return '';
+  }
+  return n.base;
+})();
 
 const USE_PIANO_GPU_STREAMING =
   typeof process.env.EXPO_PUBLIC_PIANO_GPU_STREAMING === 'string' &&
@@ -146,6 +156,7 @@ export function useNoteDetection() {
     let cancelled = false;
     const ac = new AbortController();
     streamAbortRef.current = ac;
+    const lastGateway502LogMsRef = { v: 0 };
 
     const tick = async () => {
       if (cancelled || !mic.isListening) return;
@@ -182,8 +193,16 @@ export function useNoteDetection() {
         signal: ac.signal,
       });
       if (!r.ok) {
-        if (__DEV__) console.warn('[useNoteDetection] transcribeWindowRemote', r.error);
-        setTimeout(() => void tick(), 30);
+        if (__DEV__) {
+          const gateway = r.error.includes('502') || r.error.includes('503');
+          const nowMs = Date.now();
+          if (!gateway || nowMs - lastGateway502LogMsRef.v > 15_000) {
+            console.warn('[useNoteDetection] transcribeWindowRemote', r.error);
+            if (gateway) lastGateway502LogMsRef.v = nowMs;
+          }
+        }
+        const backoffMs = r.error.includes('502') || r.error.includes('503') ? 2500 : 30;
+        setTimeout(() => void tick(), backoffMs);
         return;
       }
 

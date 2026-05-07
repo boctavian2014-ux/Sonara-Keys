@@ -1,30 +1,35 @@
 import type { ScoreAnalysis } from '../../types/score';
+import { normalizeExpoPublicApiBase } from './normalizeExpoPublicApiBase';
 
 type RenderScoreSvgResponse = { ok: true; svg: string; cached?: boolean } | { ok: false; error: string };
 
-const SCORE_RENDER_API_URL =
+const SCORE_RENDER_RAW =
   typeof process.env.EXPO_PUBLIC_SCORE_RENDER_API_URL === 'string'
     ? process.env.EXPO_PUBLIC_SCORE_RENDER_API_URL.trim()
     : '';
 
-const TRANSCRIBE_API_URL =
+const TRANSCRIBE_RAW =
   typeof process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL === 'string'
     ? process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL.trim()
     : '';
 
-function getBaseUrl(): string {
-  const u = SCORE_RENDER_API_URL || TRANSCRIBE_API_URL;
-  return u.replace(/\/$/, '');
+function getBaseResolved(): ReturnType<typeof normalizeExpoPublicApiBase> {
+  const raw = SCORE_RENDER_RAW || TRANSCRIBE_RAW;
+  if (!raw) {
+    return { ok: false, error: 'Missing EXPO_PUBLIC_SCORE_RENDER_API_URL (or EXPO_PUBLIC_TRANSCRIBE_API_URL).' };
+  }
+  return normalizeExpoPublicApiBase(raw);
 }
 
 export async function renderScoreSvgRemote(
   analysis: ScoreAnalysis,
   signal?: AbortSignal,
 ): Promise<{ ok: true; svg: string } | { ok: false; error: string }> {
-  const base = getBaseUrl();
-  if (!base) {
-    return { ok: false, error: 'Missing EXPO_PUBLIC_SCORE_RENDER_API_URL (or EXPO_PUBLIC_TRANSCRIBE_API_URL).' };
+  const resolved = getBaseResolved();
+  if (!resolved.ok) {
+    return { ok: false, error: resolved.error };
   }
+  const base = resolved.base;
 
   const url = `${base}/render-score-svg`;
   let res: Response;

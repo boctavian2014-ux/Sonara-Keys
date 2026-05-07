@@ -34,14 +34,16 @@ uvicorn app:app --host 0.0.0.0 --port 8789 --timeout-keep-alive 180
 
 ### RunPod / proxy **502**
 
-Typical causes: pod sleeping, `uvicorn` not running, **cold first request** (model load + inference exceeds proxy timeout), or payload too large.
+Typical causes: pod sleeping, `uvicorn` not running, **wrong HTTP port** on the template, **cold first request** (model load + inference exceeds proxy timeout), or payload too large.
 
-Mitigations:
+**RunPod checklist (most common fix = port):**
 
-1. **`PTI_WARMUP_STARTUP=1`** in the pod environment, then restart Uvicorn — loads `PianoTranscription` at startup so the first `/transcribe-window` is faster.
-2. Or after each deploy: `curl -X POST https://…/warmup` (add `X-Sonara-Api-Key` if you use one).
-3. In the Expo app, use **smaller** `EXPO_PUBLIC_PIANO_GPU_WINDOW_SEC` / hop (defaults were reduced in the client; see root `.env.example`).
-4. Keep **`--timeout-keep-alive 180`** on Uvicorn (already in the `Dockerfile` `CMD`).
+1. In the pod template / endpoint settings, set **exposed HTTP port** to **`8789`** (must match `uvicorn … --port 8789` and `EXPOSE 8789` in this repo’s `Dockerfile`). If RunPod sends traffic to 8000 or 8080 while the app listens on 8789, you get **502**.
+2. From your PC: `curl.exe -sS https://<your-proxy>.proxy.runpod.net/health` — expect **JSON** `{"ok":true,"engine":"piano_transcription_inference"}`. Plain `OK` or HTML means you are not hitting this container.
+3. **`PTI_WARMUP_STARTUP=1`** in the pod environment, then restart the container — loads `PianoTranscription` at startup so the first `/transcribe-window` is faster.
+4. Or after each deploy: `curl -X POST https://…/warmup` (add `X-Sonara-Api-Key` if you use one).
+5. In the Expo app, use **smaller** `EXPO_PUBLIC_PIANO_GPU_WINDOW_SEC` / hop (see root `.env.example`).
+6. Keep **`--timeout-keep-alive 180`** on Uvicorn (already in the `Dockerfile` `CMD`).
 
 ## Deploy
 

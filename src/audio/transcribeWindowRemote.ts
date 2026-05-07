@@ -1,14 +1,19 @@
 import type { DetectedNote } from '../../types/notes';
 import { encodeWavMono16 } from './encodeWavMono16';
+import { normalizeExpoPublicApiBase } from './normalizeExpoPublicApiBase';
 
 type TranscribeWindowResponse =
   | { ok: true; notes: unknown; engine?: string }
   | { ok: false; error?: string };
 
-const PIANO_GPU_API_URL =
-  typeof process.env.EXPO_PUBLIC_PIANO_GPU_API_URL === 'string'
-    ? process.env.EXPO_PUBLIC_PIANO_GPU_API_URL.trim()
-    : '';
+const PIANO_GPU_BASE_RESOLVED = (() => {
+  const raw =
+    typeof process.env.EXPO_PUBLIC_PIANO_GPU_API_URL === 'string'
+      ? process.env.EXPO_PUBLIC_PIANO_GPU_API_URL.trim()
+      : '';
+  if (!raw) return { ok: false as const, error: 'Missing EXPO_PUBLIC_PIANO_GPU_API_URL.' };
+  return normalizeExpoPublicApiBase(raw);
+})();
 
 const PIANO_GPU_API_KEY =
   typeof process.env.EXPO_PUBLIC_PIANO_GPU_API_KEY === 'string'
@@ -72,8 +77,10 @@ export async function transcribeWindowRemote(args: {
   sampleRate: number;
   signal?: AbortSignal;
 }): Promise<{ ok: true; notes: DetectedNote[] } | { ok: false; error: string }> {
-  const base = PIANO_GPU_API_URL.replace(/\/$/, '');
-  if (!base) return { ok: false, error: 'Missing EXPO_PUBLIC_PIANO_GPU_API_URL.' };
+  if (!PIANO_GPU_BASE_RESOLVED.ok) {
+    return { ok: false, error: PIANO_GPU_BASE_RESOLVED.error };
+  }
+  const base = PIANO_GPU_BASE_RESOLVED.base;
 
   const wav = encodeWavMono16(args.pcm, args.sampleRate);
   const wavBase64 = uint8ToBase64(new Uint8Array(wav));

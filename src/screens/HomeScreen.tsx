@@ -20,6 +20,7 @@ import { GlassCard } from '../../components/ui/GlassCard';
 import { GradientScreenBackground } from '../../components/ui/GradientScreenBackground';
 import { ListenHeroButton } from '../../components/ui/ListenHeroButton';
 import { ScreenHeader } from '../../components/ui/ScreenHeader';
+import { SettingsSheet } from '../../components/ui/SettingsSheet';
 import { colors, layout, radius, sonaraTheme, spacing, typography } from '../../theme';
 import { midiToFrequency, sortNotesByTime } from '../audio/midiUtils';
 import { playStaffNotesSequence } from '../audio/playStaffNotes';
@@ -32,6 +33,7 @@ import {
   writeMelodyPayloadToDisk,
 } from '../audio/melodyLibrary';
 import { shareSessionMidi, shareSessionNotesJson, shareSessionStaffSvg } from '../audio/sessionShare';
+import { normalizeExpoPublicApiBase } from '../audio/normalizeExpoPublicApiBase';
 import { useAudioToMidi } from '../audio/useAudioToMidi';
 import { useNoteDetection } from '../audio/useNoteDetection';
 import { SheetMusicView } from '../components/SheetMusicView';
@@ -54,6 +56,8 @@ import { isSupabaseConfigured } from '../lib/supabase';
 type HomeScreenProps = {
   onOpenPractice: (route: PracticeOpenSource) => void;
 };
+
+const KINDE_REDIRECT_URL = 'sonarakeys://kinde_callback';
 
 function statusPillLabel(
   isStartingMic: boolean,
@@ -111,11 +115,13 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
   );
 
   const transcribeUrlHint = useMemo(() => {
-    const u =
+    const raw =
       typeof process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL === 'string'
         ? process.env.EXPO_PUBLIC_TRANSCRIBE_API_URL.trim()
         : '';
-    return u.length > 0 ? u : 'Nu e setat (adaugă EXPO_PUBLIC_TRANSCRIBE_API_URL în .env).';
+    if (!raw) return 'Nu e setat (adaugă EXPO_PUBLIC_TRANSCRIBE_API_URL în .env).';
+    const n = normalizeExpoPublicApiBase(raw);
+    return n.ok ? n.base : `URL invalid: ${n.error}`;
   }, []);
 
   const scoreAnalysis = useMemo(() => {
@@ -291,7 +297,10 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
     if (kinde == null) return;
     setKindeAuthBusy(true);
     try {
-      await kinde.login({ hasSuccessPage: false });
+      await kinde.login({
+        hasSuccessPage: false,
+        redirectURL: KINDE_REDIRECT_URL,
+      });
     } catch (e) {
       Alert.alert('Autentificare', e instanceof Error ? e.message : 'A eșuat conectarea.');
     } finally {
@@ -303,7 +312,10 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
     if (kinde == null) return;
     setKindeAuthBusy(true);
     try {
-      await kinde.register({ hasSuccessPage: false });
+      await kinde.register({
+        hasSuccessPage: false,
+        redirectURL: KINDE_REDIRECT_URL,
+      });
     } catch (e) {
       Alert.alert('Înregistrare', e instanceof Error ? e.message : 'A eșuat.');
     } finally {
@@ -992,93 +1004,86 @@ export default function HomeScreen({ onOpenPractice }: HomeScreenProps) {
               </Pressable>
             </View>
 
-            <Modal visible={settingsOpen} transparent animationType="fade" onRequestClose={() => setSettingsOpen(false)}>
-              <View style={styles.modalBackdrop}>
-                <GlassCard style={styles.modalCard}>
-                  <Text style={styles.modalTitle}>Setări și informații</Text>
-                  <ScrollView style={styles.settingsScroll} keyboardShouldPersistTaps="handled">
-                    <Text style={styles.settingsLabel}>Versiune aplicație</Text>
-                    <Text style={styles.settingsValue}>{appVersionLabel}</Text>
-                    <Text style={styles.settingsLabel}>Server transcriere (env)</Text>
-                    <Text style={styles.settingsValue} selectable>
-                      {transcribeUrlHint}
-                    </Text>
-                    <Text style={styles.settingsLabel}>Dezvoltare USB</Text>
-                    <Text style={styles.settingsValue}>
-                      Pornește Metro cu reverse ADB: npm run dev:usb (vezi docs/local-basic-pitch.md).
-                    </Text>
+            <SettingsSheet
+              visible={settingsOpen}
+              onClose={() => setSettingsOpen(false)}
+              title="Setări și informații"
+              doneLabel="Închide"
+            >
+              <GlassCard style={styles.modalCard}>
+                <ScrollView style={styles.settingsScroll} keyboardShouldPersistTaps="handled">
+                  <Text style={styles.settingsLabel}>Versiune aplicație</Text>
+                  <Text style={styles.settingsValue}>{appVersionLabel}</Text>
+                  <Text style={styles.settingsLabel}>Server transcriere (env)</Text>
+                  <Text style={styles.settingsValue} selectable>
+                    {transcribeUrlHint}
+                  </Text>
+                  <Text style={styles.settingsLabel}>Dezvoltare USB</Text>
+                  <Text style={styles.settingsValue}>
+                    Pornește Metro cu reverse ADB: npm run dev:usb (vezi docs/local-basic-pitch.md).
+                  </Text>
 
-                    <Text style={styles.settingsLabel}>Cont (Kinde)</Text>
-                    {!kindeEnvConfigured ? (
-                      <Text style={styles.settingsValue}>
-                        Adaugă în .env: EXPO_PUBLIC_KINDE_DOMAIN și EXPO_PUBLIC_KINDE_CLIENT_ID, apoi repornește
-                        bundler-ul. În Kinde → Applications → Callback URLs include sonarakeys://kinde_callback
-                        (scheme din app.json).
-                      </Text>
-                    ) : kinde == null ? (
-                      <Text style={styles.settingsValue}>
-                        {webBlock
-                          ? 'Autentificarea Kinde este disponibilă în build-ul nativ (Android / iOS), nu în browser.'
-                          : 'Kinde nu e disponibil în acest build. Verifică că ai repornit Metro după ce ai setat .env.'}
-                      </Text>
-                    ) : kinde.isLoading ? (
-                      <ActivityIndicator color={colors.accentTeal} style={{ marginVertical: spacing.sm }} />
-                    ) : kinde.isAuthenticated ? (
-                      <>
-                        <Text style={styles.settingsValue}>{kindeProfileLine ?? 'Se încarcă profilul…'}</Text>
-                        <Pressable
-                          onPress={() => void onKindeLogout()}
-                          disabled={kindeAuthBusy}
-                          style={({ pressed }) => [
-                            styles.modalBtnGhost,
-                            styles.kindeAuthBtn,
-                            kindeAuthBusy && styles.actionDisabled,
-                            pressed && !kindeAuthBusy && styles.actionPressed,
-                          ]}
-                        >
-                          <Text style={styles.modalBtnGhostText}>Ieșire din cont</Text>
-                        </Pressable>
-                      </>
-                    ) : (
-                      <View style={styles.kindeAuthRow}>
-                        <Pressable
-                          onPress={() => void onKindeLogin()}
-                          disabled={kindeAuthBusy}
-                          style={({ pressed }) => [
-                            styles.modalBtnPrimary,
-                            styles.kindeAuthBtnFlex,
-                            kindeAuthBusy && styles.actionDisabled,
-                            pressed && !kindeAuthBusy && styles.actionPressed,
-                          ]}
-                        >
-                          <Text style={styles.modalBtnPrimaryText}>Autentificare</Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => void onKindeRegister()}
-                          disabled={kindeAuthBusy}
-                          style={({ pressed }) => [
-                            styles.modalBtnGhost,
-                            styles.kindeAuthBtnFlex,
-                            kindeAuthBusy && styles.actionDisabled,
-                            pressed && !kindeAuthBusy && styles.actionPressed,
-                          ]}
-                        >
-                          <Text style={styles.modalBtnGhostText}>Înregistrare</Text>
-                        </Pressable>
-                      </View>
-                    )}
-                  </ScrollView>
-                  <View style={styles.modalActions}>
-                    <Pressable
-                      onPress={() => setSettingsOpen(false)}
-                      style={({ pressed }) => [styles.modalBtnPrimary, pressed && styles.actionPressed]}
-                    >
-                      <Text style={styles.modalBtnPrimaryText}>Închide</Text>
-                    </Pressable>
-                  </View>
-                </GlassCard>
-              </View>
-            </Modal>
+                  <Text style={styles.settingsLabel}>Cont (Kinde)</Text>
+                  {!kindeEnvConfigured ? (
+                    <Text style={styles.settingsValue}>
+                      Adaugă în .env: EXPO_PUBLIC_KINDE_DOMAIN și EXPO_PUBLIC_KINDE_CLIENT_ID, apoi repornește bundler-ul.
+                      În Kinde → Applications → Callback URLs include sonarakeys://kinde_callback (scheme din app.json).
+                    </Text>
+                  ) : kinde == null ? (
+                    <Text style={styles.settingsValue}>
+                      {webBlock
+                        ? 'Autentificarea Kinde este disponibilă în build-ul nativ (Android / iOS), nu în browser.'
+                        : 'Kinde nu e disponibil în acest build. Verifică că ai repornit Metro după ce ai setat .env.'}
+                    </Text>
+                  ) : kinde.isLoading ? (
+                    <ActivityIndicator color={colors.accentTeal} style={{ marginVertical: spacing.sm }} />
+                  ) : kinde.isAuthenticated ? (
+                    <>
+                      <Text style={styles.settingsValue}>{kindeProfileLine ?? 'Se încarcă profilul…'}</Text>
+                      <Pressable
+                        onPress={() => void onKindeLogout()}
+                        disabled={kindeAuthBusy}
+                        style={({ pressed }) => [
+                          styles.modalBtnGhost,
+                          styles.kindeAuthBtn,
+                          kindeAuthBusy && styles.actionDisabled,
+                          pressed && !kindeAuthBusy && styles.actionPressed,
+                        ]}
+                      >
+                        <Text style={styles.modalBtnGhostText}>Ieșire din cont</Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <View style={styles.kindeAuthRow}>
+                      <Pressable
+                        onPress={() => void onKindeLogin()}
+                        disabled={kindeAuthBusy}
+                        style={({ pressed }) => [
+                          styles.modalBtnPrimary,
+                          styles.kindeAuthBtnFlex,
+                          kindeAuthBusy && styles.actionDisabled,
+                          pressed && !kindeAuthBusy && styles.actionPressed,
+                        ]}
+                      >
+                        <Text style={styles.modalBtnPrimaryText}>Autentificare</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => void onKindeRegister()}
+                        disabled={kindeAuthBusy}
+                        style={({ pressed }) => [
+                          styles.modalBtnGhost,
+                          styles.kindeAuthBtnFlex,
+                          kindeAuthBusy && styles.actionDisabled,
+                          pressed && !kindeAuthBusy && styles.actionPressed,
+                        ]}
+                      >
+                        <Text style={styles.modalBtnGhostText}>Înregistrare</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </ScrollView>
+              </GlassCard>
+            </SettingsSheet>
 
             <Modal visible={saveModalOpen} transparent animationType="fade" onRequestClose={() => setSaveModalOpen(false)}>
               <View style={styles.modalBackdrop}>
